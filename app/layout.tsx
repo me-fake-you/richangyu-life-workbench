@@ -10,6 +10,7 @@ import "./backup.css";
 import "./review.css";
 import "./guide.css";
 import "./reliability.css";
+import "./mobile-experience.css";
 import { PwaProvider } from "./pwa-client";
 
 export const viewport: Viewport = {
@@ -50,7 +51,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description: "安排生活，理解信息，抓住机会，看见成长。",
       type: "website",
       locale: "zh_CN",
-      images: [{ url: `${origin}/og.png`, width: 1792, height: 896 }],
+      images: [{ url: `${origin}/og.png`, width: 1672, height: 941 }],
     },
     twitter: {
       card: "summary_large_image",

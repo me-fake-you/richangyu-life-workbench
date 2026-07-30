@@ -27,7 +27,7 @@ test("v1.3 exposes auditable health, demo, sync and AI transparency", async () =
     readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(JSON.parse(pkgRaw).version, "1.4.0");
+  assert.equal(JSON.parse(pkgRaw).version, "1.5.0");
   assert.match(healthRoute, /PRAGMA foreign_key_check/);
   assert.match(healthRoute, /SHA-256/);
   assert.match(healthRoute, /wroteProductionData: false/);

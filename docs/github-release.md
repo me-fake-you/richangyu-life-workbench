@@ -10,7 +10,7 @@
 
 ## 为什么使用全新源码包
 
-当前个人开发仓库的历史中曾包含专用 Sites 项目元数据。即使最新提交已移除，直接公开旧 Git 历史仍可能暴露过去的部署标识。因此第一次公开发布应使用生成的 `outputs/richangyu-life-workbench-v1.4.0-source.zip` 创建全新仓库，不要推送当前 `.git` 历史。
+当前个人开发仓库的历史中曾包含专用 Sites 项目元数据。即使最新提交已移除，直接公开旧 Git 历史仍可能暴露过去的部署标识。因此第一次公开发布应使用生成的 `outputs/richangyu-life-workbench-v1.5.0-source.zip` 创建全新仓库，不要推送当前 `.git` 历史。
 
 ## 上传步骤
 
@@ -21,14 +21,14 @@
    npm run release:source
    ```
 
-2. 解压 `outputs/richangyu-life-workbench-v1.4.0-source.zip` 到新的空目录。
+2. 解压 `outputs/richangyu-life-workbench-v1.5.0-source.zip` 到新的空目录。
 3. 在 GitHub 创建**空仓库**，不要自动添加 README、License 或 `.gitignore`。
 4. 在新目录执行：
 
    ```bash
    git init
    git add .
-   git commit -m "feat: publish Richangyu v1.4.0"
+   git commit -m "feat: publish Richangyu v1.5.0"
    git branch -M main
    git remote add origin <你的GitHub仓库地址>
    git push -u origin main
@@ -37,21 +37,21 @@
 5. 在仓库 Settings 开启 Issues、Discussions、Dependabot alerts 和 Private vulnerability reporting。
 6. 检查 Actions 中 CI 与 CodeQL 是否通过。
 
-## 建议的 v1.4.0 Release 文案
+## 建议的 v1.5.0 Release 文案
 
 标题：
 
 ```text
-日常屿 v1.4.0：简洁工作台与统一快捷记录
+日常屿 v1.5.0：移动优先与长期可靠性
 ```
 
 摘要：
 
 ```text
-日常屿 v1.4.0 在长期可靠版基础上，加入简洁/完整工作台、六种场景预设、
-五入口手机导航，以及文字、语音、照片统一快捷记录。
-一句“午饭鸡肉饭，花了32元，心情不错”可以先预览，再同时写入饮食、财务和生活记录，
-执行后仍可立即撤销；生活收件箱也增加了逐条整理模式。
+日常屿 v1.5.0 将手机升级为主要记录入口：底部“＋”提供写一句话、拍照、语音、
+饮食、收件箱和更多指令，支持相机直达、长按语音、可配置底部入口与清晰同步状态。
+时间表支持滑动吸附，表单保存区适合单手操作，离线重新打开后仍能进入安全应用外壳；
+私密空间切到后台会自动锁定，次要模块改为按需加载。
 项目继续保留数据健康、恢复演练、安全演示、同步诊断、AI 来源说明、
 约三分钟中文讲解、WebVTT 中文字幕和完整中英双语文档。
 支持 Cloudflare Worker + D1 + R2 自部署，可选 NVIDIA/OpenAI 模型。

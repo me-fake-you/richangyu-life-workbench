@@ -17,6 +17,7 @@ const defaultPreferences = {
   smartSort: true,
   workspaceMode: "simple",
   scenePreset: "daily",
+  mobileShortcut: "review",
 };
 
 function text(value: unknown, max = 120) {
@@ -42,6 +43,16 @@ function normalizePatch(value: unknown) {
     input.scenePreset === "finance"
   ) {
     patch.scenePreset = input.scenePreset;
+  }
+  if (
+    input.mobileShortcut === "review" ||
+    input.mobileShortcut === "inbox" ||
+    input.mobileShortcut === "gallery" ||
+    input.mobileShortcut === "finance" ||
+    input.mobileShortcut === "nutrition" ||
+    input.mobileShortcut === "sideHustle"
+  ) {
+    patch.mobileShortcut = input.mobileShortcut;
   }
   return patch;
 }

@@ -13,7 +13,7 @@ test("v1.2 exposes mobile shortcuts and an accessible walkthrough", async () => 
     readFile(new URL("../public/tutorial/richangyu-quick-start.vtt", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(JSON.parse(pkgRaw).version, "1.4.0");
+  assert.equal(JSON.parse(pkgRaw).version, "1.5.0");
   for (const action of ["record", "schedule", "nutrition", "inbox"]) {
     assert.match(manifest, new RegExp(`action=${action}`));
     assert.match(workbench, new RegExp(`action === "${action}"`));

@@ -54,14 +54,16 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
+  lazy,
   ReactNode,
+  Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
-  AdvancedCenter,
   ScheduleReminderWatcher,
 } from "./advanced-center";
 import { ConfigurableDashboard } from "./configurable-dashboard";
@@ -70,19 +72,17 @@ import {
   type CommandResult,
 } from "./command-palette";
 import { DataPortabilityCenter } from "./data-portability-center";
-import { FinanceCenter } from "./finance-center";
 import {
   GlobalSearchPanel,
   type GlobalSearchResult,
 } from "./global-search-panel";
-import { IntelligenceCenter } from "./intelligence-center";
-import { JobCenter } from "./job-center";
 import { LifeGraph } from "./life-graph";
-import { LongTermReviewCenter } from "./long-term-review-center";
-import { NutritionCenter } from "./nutrition-center";
-import { PhotoCenter } from "./photo-center";
 import { PwaInstallCard } from "./pwa-client";
-import { SideHustleCenter } from "./side-hustle-center";
+import {
+  MobileInstallNudge,
+  MobileQuickSheet,
+  NotificationSetupCard,
+} from "./mobile-experience";
 import {
   enqueueOfflineMutation,
   enqueueOfflineEventWithPhotos,
@@ -92,8 +92,54 @@ import {
 import { SyncStatus } from "./sync-status";
 import { SyncCenter } from "./sync-center";
 import { ReliabilityCenter } from "./reliability-center";
-import { TopicSpaces } from "./topic-spaces";
-import { FirstRunGuide, UserGuide } from "./user-guide";
+import { FirstRunGuide } from "./user-guide";
+
+const AdvancedCenter = lazy(() =>
+  import("./advanced-center").then((module) => ({
+    default: module.AdvancedCenter,
+  })),
+);
+const FinanceCenter = lazy(() =>
+  import("./finance-center").then((module) => ({
+    default: module.FinanceCenter,
+  })),
+);
+const IntelligenceCenter = lazy(() =>
+  import("./intelligence-center").then((module) => ({
+    default: module.IntelligenceCenter,
+  })),
+);
+const JobCenter = lazy(() =>
+  import("./job-center").then((module) => ({ default: module.JobCenter })),
+);
+const LongTermReviewCenter = lazy(() =>
+  import("./long-term-review-center").then((module) => ({
+    default: module.LongTermReviewCenter,
+  })),
+);
+const NutritionCenter = lazy(() =>
+  import("./nutrition-center").then((module) => ({
+    default: module.NutritionCenter,
+  })),
+);
+const PhotoCenter = lazy(() =>
+  import("./photo-center").then((module) => ({
+    default: module.PhotoCenter,
+  })),
+);
+const SideHustleCenter = lazy(() =>
+  import("./side-hustle-center").then((module) => ({
+    default: module.SideHustleCenter,
+  })),
+);
+const TopicSpaces = lazy(() =>
+  import("./topic-spaces").then((module) => ({
+    default: module.TopicSpaces,
+  })),
+);
+const UserGuide = lazy(() =>
+  import("./user-guide").then((module) => ({ default: module.UserGuide })),
+);
 
 type ViewId =
   | "today"
@@ -117,6 +163,13 @@ type ViewId =
   | "mine";
 
 type WorkspaceMode = "simple" | "full";
+type MobileShortcut =
+  | "review"
+  | "inbox"
+  | "gallery"
+  | "finance"
+  | "nutrition"
+  | "sideHustle";
 type ScenePreset =
   | "daily"
   | "teacher"
@@ -128,6 +181,7 @@ type ScenePreset =
 type WorkbenchPreferences = {
   workspaceMode: WorkspaceMode;
   scenePreset: ScenePreset;
+  mobileShortcut: MobileShortcut;
 };
 
 type Photo = {
@@ -623,6 +677,18 @@ const scenePresetMeta: Record<
   },
 };
 
+const mobileShortcutMeta: Record<
+  MobileShortcut,
+  { label: string; icon: typeof LayoutDashboard }
+> = {
+  review: { label: "回顾", icon: Sparkles },
+  inbox: { label: "收件箱", icon: Inbox },
+  gallery: { label: "相册", icon: ImageIcon },
+  finance: { label: "财务", icon: WalletCards },
+  nutrition: { label: "饮食", icon: Utensils },
+  sideHustle: { label: "兼职", icon: BriefcaseBusiness },
+};
+
 const simpleCoreModules: ViewId[] = [
   "today",
   "schedule",
@@ -657,6 +723,35 @@ function localDateTime(date = new Date()) {
   if (Number.isNaN(date.getTime())) date = new Date();
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function prepareLifePhoto(file: File) {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const longest = Math.max(bitmap.width, bitmap.height);
+    if (longest <= 1800 && file.size <= 4 * 1024 * 1024) {
+      bitmap.close();
+      return file;
+    }
+    const scale = Math.min(1, 1800 / longest);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.85),
+    );
+    return blob
+      ? new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", {
+          type: "image/jpeg",
+          lastModified: file.lastModified,
+        })
+      : file;
+  } catch {
+    return file;
+  }
 }
 
 function localDateTimeToIso(value: unknown) {
@@ -926,7 +1021,12 @@ function EventCard({
           >
             {event.photos.slice(0, 4).map((photo, index) => (
               <figure key={photo.id}>
-                <img src={photo.url} alt={photo.filename || `生活照片 ${index + 1}`} />
+                <img
+                  src={photo.url}
+                  alt={photo.filename || `生活照片 ${index + 1}`}
+                  loading="lazy"
+                  decoding="async"
+                />
                 {index === 3 && event.photos.length > 4 && (
                   <span>+{event.photos.length - 4}</span>
                 )}
@@ -982,7 +1082,11 @@ export function LifeDesk() {
   const [focusedEventId, setFocusedEventId] = useState("");
   const [notice, setNotice] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [mobileQuickOpen, setMobileQuickOpen] = useState(false);
+  const [mobileVoiceFirst, setMobileVoiceFirst] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
+  const [quickRecordFiles, setQuickRecordFiles] = useState<File[]>([]);
+  const [quickMealPhoto, setQuickMealPhoto] = useState<File | null>(null);
   const [editingEvent, setEditingEvent] = useState<LifeEvent | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleEvent | null>(
@@ -1009,10 +1113,16 @@ export function LifeDesk() {
     useState<WorkbenchPreferences>({
       workspaceMode: "simple",
       scenePreset: "daily",
+      mobileShortcut: "review",
     });
   const [showAllModules, setShowAllModules] = useState(false);
   const preferenceVersion = useRef(0);
+  const mobilePressStartedAt = useRef(0);
+  const mobileLongPress = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const consumeQuickMealPhoto = useCallback(() => {
+    setQuickMealPhoto(null);
+  }, []);
 
   async function loadWorkspace(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -1059,6 +1169,11 @@ export function LifeDesk() {
             payload.preferences.scenePreset in scenePresetMeta
               ? payload.preferences.scenePreset
               : "daily",
+          mobileShortcut:
+            payload.preferences?.mobileShortcut &&
+            payload.preferences.mobileShortcut in mobileShortcutMeta
+              ? payload.preferences.mobileShortcut as MobileShortcut
+              : "review",
         });
       } catch {
         // The defaults keep navigation usable while offline.
@@ -1278,6 +1393,9 @@ export function LifeDesk() {
               .filter((item) => item.id === "guide" || item.id === "mine"),
           },
         ];
+  const mobileShortcut =
+    mobileShortcutMeta[workbenchPreferences.mobileShortcut];
+  const MobileShortcutIcon = mobileShortcut.icon;
 
   async function saveRecord(
     form: HTMLFormElement,
@@ -1285,6 +1403,7 @@ export function LifeDesk() {
     event?: LifeEvent | null,
   ) {
     const payload = new FormData(form);
+    const uploadPhotos = await Promise.all(photos.map(prepareLifePhoto));
     const deviceId = getDeviceId();
     payload.set("deviceId", deviceId);
     if (event) {
@@ -1321,10 +1440,10 @@ export function LifeDesk() {
         if (!response.ok) throw new Error(body.error || "更新失败。");
         textUpdated = true;
         savedRevision = Number(body.revision) || event.revision + 1;
-        if (photos.length) {
+        if (uploadPhotos.length) {
           const photoForm = new FormData();
           photoForm.set("eventId", event.id);
-          photos.forEach((photo) => photoForm.append("photos", photo));
+          uploadPhotos.forEach((photo) => photoForm.append("photos", photo));
           const photoResponse = await fetch("/api/events/photos", {
             method: "POST",
             body: photoForm,
@@ -1335,12 +1454,12 @@ export function LifeDesk() {
           }
         }
       } catch (error) {
-        if (textUpdated && photos.length) {
+        if (textUpdated && uploadPhotos.length) {
           await enqueueOfflineEventUpdateWithPhotos(
             event.id,
             savedRevision,
             values,
-            photos,
+            uploadPhotos,
           );
           setRecordOpen(false);
           setEditingEvent(null);
@@ -1366,13 +1485,13 @@ export function LifeDesk() {
       setEditingEvent(null);
       await loadWorkspace();
       setNotice(
-        photos.length
+        uploadPhotos.length
           ? "文字与新增照片已保存，并保留了修改历史。"
           : "记录已更新，并保留了修改历史。",
       );
       return;
     }
-    photos.forEach((photo) => payload.append("photos", photo));
+    uploadPhotos.forEach((photo) => payload.append("photos", photo));
     try {
       const response = await fetch("/api/events", {
         method: "POST",
@@ -1395,8 +1514,8 @@ export function LifeDesk() {
             tags: String(payload.get("tags") ?? ""),
             isPrivate: payload.get("isPrivate") === "true",
         };
-        if (photos.length) {
-          await enqueueOfflineEventWithPhotos(offlinePayload, photos);
+        if (uploadPhotos.length) {
+          await enqueueOfflineEventWithPhotos(offlinePayload, uploadPhotos);
         } else {
           await enqueueOfflineMutation({
             action: "event.create",
@@ -1405,7 +1524,7 @@ export function LifeDesk() {
         }
         setRecordOpen(false);
         setNotice(
-          photos.length
+          uploadPhotos.length
             ? "图文记录已安全排队，联网后会先同步文字再续传照片。"
             : "记录已保存在本机，联网后会自动进入时间线。",
         );
@@ -1416,7 +1535,7 @@ export function LifeDesk() {
     setRecordOpen(false);
     await loadWorkspace();
     setNotice(
-      photos.length > 0 && !String(payload.get("content") ?? "").trim()
+      uploadPhotos.length > 0 && !String(payload.get("content") ?? "").trim()
         ? "照片已保存，之后可以在照片整理中补充故事和标签。"
         : "这一刻已经进入生活时间线。",
     );
@@ -1435,7 +1554,7 @@ export function LifeDesk() {
     form.set("mood", payload.mood);
     form.set("kind", "生活");
     form.set("energy", "3");
-    if (photo) form.append("photos", photo);
+    if (photo) form.append("photos", await prepareLifePhoto(photo));
     const response = await fetch("/api/events", {
       method: "POST",
       body: form,
@@ -1666,6 +1785,12 @@ export function LifeDesk() {
     setGlobalSearch("");
   }
 
+  function openMobileQuick(voiceFirst = false) {
+    setMobileVoiceFirst(voiceFirst);
+    setMobileQuickOpen(true);
+    if ("vibrate" in navigator) navigator.vibrate(voiceFirst ? [18, 35, 18] : 10);
+  }
+
   return (
     <main className="app-shell" id="main-content">
       <FirstRunGuide onNavigate={(next) => changeView(next as ViewId)} />
@@ -1843,7 +1968,14 @@ export function LifeDesk() {
               <p>正在打开你的生活工作台…</p>
             </div>
           ) : (
-            <>
+            <Suspense
+              fallback={
+                <div className="loading-state deferred-loading">
+                  <LoaderCircle className="spin" size={23} />
+                  <p>正在打开这个模块…</p>
+                </div>
+              }
+            >
               {view === "today" && (
                 <TodayView
                   today={today}
@@ -1941,7 +2073,11 @@ export function LifeDesk() {
               )}
 
               {view === "nutrition" && (
-                <NutritionCenter onNotice={setNotice} />
+                <NutritionCenter
+                  onNotice={setNotice}
+                  initialPhoto={quickMealPhoto}
+                  onInitialPhotoConsumed={consumeQuickMealPhoto}
+                />
               )}
 
               {view === "finance" && (
@@ -2065,7 +2201,7 @@ export function LifeDesk() {
                   }}
                 />
               )}
-            </>
+            </Suspense>
           )}
         </div>
 
@@ -2094,17 +2230,38 @@ export function LifeDesk() {
           </button>
           <button
             className="mobile-create"
-            onClick={() => setCommandOpen(true)}
-            aria-label="全局指令"
+            onPointerDown={() => {
+              mobilePressStartedAt.current = Date.now();
+              mobileLongPress.current = false;
+            }}
+            onPointerUp={() => {
+              if (Date.now() - mobilePressStartedAt.current >= 520) {
+                mobileLongPress.current = true;
+                openMobileQuick(true);
+              }
+            }}
+            onPointerCancel={() => {
+              mobilePressStartedAt.current = 0;
+              mobileLongPress.current = false;
+            }}
+            onClick={() => {
+              if (mobileLongPress.current) {
+                mobileLongPress.current = false;
+                return;
+              }
+              openMobileQuick(false);
+            }}
+            aria-label="快捷记录，长按优先打开语音"
+            title="点击快捷记录，长按语音"
           >
-            <Command size={22} />
+            <Plus size={24} />
           </button>
           <button
-            className={view === "review" ? "active" : ""}
-            onClick={() => changeView("review")}
+            className={view === workbenchPreferences.mobileShortcut ? "active" : ""}
+            onClick={() => changeView(workbenchPreferences.mobileShortcut)}
           >
-            <Sparkles size={20} />
-            <span>回顾</span>
+            <MobileShortcutIcon size={20} />
+            <span>{mobileShortcut.label}</span>
           </button>
           <button
             className={view === "mine" ? "active" : ""}
@@ -2112,9 +2269,50 @@ export function LifeDesk() {
           >
             <UserRound size={20} />
             <span>我的</span>
+            {pendingInbox.length > 0 && (
+              <em className="mobile-nav-badge">{pendingInbox.length}</em>
+            )}
           </button>
         </nav>
+        <MobileInstallNudge onGuide={() => changeView("guide")} />
       </section>
+
+      <MobileQuickSheet
+        open={mobileQuickOpen}
+        voiceFirst={mobileVoiceFirst}
+        onClose={() => setMobileQuickOpen(false)}
+        onText={() => {
+          setMobileQuickOpen(false);
+          setEditingEvent(null);
+          setQuickRecordFiles([]);
+          setRecordOpen(true);
+        }}
+        onPhoto={(file) => {
+          setMobileQuickOpen(false);
+          setEditingEvent(null);
+          setQuickRecordFiles([file]);
+          setRecordOpen(true);
+        }}
+        onVoice={(file) => {
+          setMobileQuickOpen(false);
+          setInboxDraft("语音随手记");
+          setInboxFiles([file]);
+          setInboxOpen(true);
+        }}
+        onMeal={(file) => {
+          setMobileQuickOpen(false);
+          setQuickMealPhoto(file ?? null);
+          changeView("nutrition");
+        }}
+        onInbox={() => {
+          setMobileQuickOpen(false);
+          setInboxOpen(true);
+        }}
+        onCommand={() => {
+          setMobileQuickOpen(false);
+          setCommandOpen(true);
+        }}
+      />
 
       {commandOpen && (
         <CommandPalette
@@ -2160,11 +2358,16 @@ export function LifeDesk() {
       {recordOpen && (
         <RecordModal
           initialEvent={editingEvent}
+          initialFiles={quickRecordFiles}
           onClose={() => {
             setRecordOpen(false);
             setEditingEvent(null);
+            setQuickRecordFiles([]);
           }}
-          onSubmit={saveRecord}
+          onSubmit={async (...args) => {
+            await saveRecord(...args);
+            setQuickRecordFiles([]);
+          }}
           fileRef={fileRef}
           setNotice={setNotice}
         />
@@ -4588,6 +4791,8 @@ function InboxView({
               key={attachment.id}
               src={attachment.url}
               alt={attachment.filename}
+              loading="lazy"
+              decoding="async"
             />
           ) : attachment.contentType.startsWith("audio/") ? (
             <audio
@@ -4797,6 +5002,39 @@ function PrivateView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!vault.unlocked) {
+      document.documentElement.classList.remove("privacy-concealed");
+      return;
+    }
+    function concealAndLock() {
+      document.documentElement.classList.add("privacy-concealed");
+      setVault((current) => ({ ...current, unlocked: false }));
+      void fetch("/api/private-vault", {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => undefined);
+    }
+    function visibilityChanged() {
+      if (document.visibilityState === "hidden") {
+        concealAndLock();
+      } else {
+        document.documentElement.classList.remove("privacy-concealed");
+      }
+    }
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("pagehide", concealAndLock);
+    return () => {
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener("pagehide", concealAndLock);
+      document.documentElement.classList.remove("privacy-concealed");
+      void fetch("/api/private-vault", {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+  }, [vault.unlocked]);
+
   async function unlock() {
     setBusy(true);
     try {
@@ -4888,7 +5126,7 @@ function PrivateView({
         <span><EyeOff size={23} /></span>
         <div>
           <h1>私密空间与普通工作台完全分开</h1>
-          <p>这里的内容不会进入普通首页、搜索、默认总结、往年今日和通知正文。</p>
+          <p>这里的内容不会进入普通首页、搜索、默认总结、往年今日和通知正文；切到后台时会立即遮挡并重新锁定。</p>
         </div>
         <button className="light-button" onClick={onRecord}>
           <Plus size={16} /> 新建私密记录
@@ -5003,6 +5241,36 @@ function MineView({
               </button>
             ))}
           </div>
+          <div className="mobile-shortcut-settings">
+            <div>
+              <strong>手机底部快捷入口</strong>
+              <small>“今日、时间表、＋、我的”固定，中间右侧入口由你选择。</small>
+            </div>
+            <div role="group" aria-label="选择手机底部快捷入口">
+              {(Object.keys(mobileShortcutMeta) as MobileShortcut[]).map(
+                (shortcut) => {
+                  const item = mobileShortcutMeta[shortcut];
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={shortcut}
+                      className={
+                        preferences.mobileShortcut === shortcut ? "active" : ""
+                      }
+                      onClick={() =>
+                        void onPreferencesChange({
+                          mobileShortcut: shortcut,
+                        })
+                      }
+                    >
+                      <Icon size={15} />
+                      {item.label}
+                    </button>
+                  );
+                },
+              )}
+            </div>
+          </div>
           <div className="data-actions">
             <button onClick={() => onView("today")}>
               <Grid2X2 size={16} />
@@ -5072,6 +5340,8 @@ function MineView({
         </section>
 
         <PwaInstallCard />
+
+        <NotificationSetupCard onNotice={onNotice} />
       </div>
     </section>
   );
@@ -5079,12 +5349,14 @@ function MineView({
 
 function RecordModal({
   initialEvent,
+  initialFiles,
   onClose,
   onSubmit,
   fileRef,
   setNotice,
 }: {
   initialEvent?: LifeEvent | null;
+  initialFiles?: File[];
   onClose: () => void;
   onSubmit: (
     form: HTMLFormElement,
@@ -5096,7 +5368,7 @@ function RecordModal({
 }) {
   const [mood, setMood] = useState(initialEvent?.mood || "平静");
   const [energy, setEnergy] = useState(initialEvent?.energy || 3);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [advanced, setAdvanced] = useState(
     Boolean(

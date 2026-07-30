@@ -162,8 +162,12 @@ function ProgressMetric({
 
 export function NutritionCenter({
   onNotice,
+  initialPhoto,
+  onInitialPhotoConsumed,
 }: {
   onNotice: (notice: string) => void;
+  initialPhoto?: File | null;
+  onInitialPhotoConsumed?: () => void;
 }) {
   const [data, setData] = useState<NutritionData>(emptyNutrition);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -201,6 +205,20 @@ export function NutritionCenter({
     // The initial nutrition request runs only when the center is mounted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!initialPhoto) return;
+    const timer = window.setTimeout(async () => {
+      const prepared = await prepareMealPhoto(initialPhoto);
+      setPhoto(prepared);
+      setModalOpen(true);
+      onInitialPhotoConsumed?.();
+      if (prepared.size < initialPhoto.size) {
+        onNotice("餐食照片已在本机压缩，原图不会被修改。");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialPhoto, onInitialPhotoConsumed, onNotice]);
 
   useEffect(() => {
     const url = photo ? URL.createObjectURL(photo) : "";

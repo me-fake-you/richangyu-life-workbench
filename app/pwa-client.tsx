@@ -29,6 +29,10 @@ const PwaContext = createContext<PwaContextValue>({
   install: async () => undefined,
 });
 
+export function usePwa() {
+  return useContext(PwaContext);
+}
+
 export function PwaProvider({ children }: { children: ReactNode }) {
   const [promptEvent, setPromptEvent] = useState<InstallPromptEvent | null>(
     null,

@@ -11,7 +11,7 @@ test("v1.4 keeps the full system discoverable while making daily use simpler", a
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(JSON.parse(pkgRaw).version, "1.4.0");
+  assert.equal(JSON.parse(pkgRaw).version, "1.5.0");
   assert.match(preferences, /workspaceMode/);
   assert.match(preferences, /scenePreset/);
   assert.match(workbench, /简洁模式/);
@@ -19,7 +19,7 @@ test("v1.4 keeps the full system discoverable while making daily use simpler", a
   assert.match(workbench, /查看全部功能/);
   assert.match(workbench, /逐条整理/);
   assert.match(workbench, /一次只处理一条/);
-  assert.match(workbench, /<span>回顾<\/span>/);
+  assert.match(workbench, /mobileShortcutMeta/);
   assert.match(command, /MULTI-ACTION CAPTURE/);
   assert.match(command, /午饭鸡肉饭，花了32元，心情不错/);
   assert.match(command, /语音输入/);

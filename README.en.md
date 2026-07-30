@@ -119,7 +119,7 @@ This runs type checks, linting, tests, and the production build. Read [CONTRIBUT
 
 ## Status and license
 
-`v1.4.0` is the usability release: it adds simple/full workspace modes, six scene presets, a five-entry mobile navigation, unified text/voice/photo capture, multi-module command previews with immediate undo, and one-by-one inbox triage.
+`v1.5.0` is the mobile-first release: it adds a six-action quick-capture sheet, direct camera and voice entry, a configurable bottom shortcut, visible sync state, offline shell reopening, notification setup, background privacy locking, and lazy-loaded secondary modules.
 
 The next release should prioritize a resettable public demo, end-to-end coverage, backup/restore verification, sync conflict observability, deployment security checks, AI provenance, performance, and accessibility. Native mobile clients, multi-user collaboration, a third-party plugin marketplace, and medical-grade nutrition analysis remain outside the current release scope.
 

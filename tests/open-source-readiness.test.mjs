@@ -20,7 +20,7 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
     ]);
 
   const pkg = JSON.parse(pkgRaw);
-  assert.equal(pkg.version, "1.4.0");
+  assert.equal(pkg.version, "1.5.0");
   assert.equal(pkg.license, "MIT");
   assert.match(pkg.scripts.validate, /typecheck.*lint.*test.*build/);
   assert.match(pkg.scripts["deploy:cloudflare"], /wrangler\.self-host\.json/);
