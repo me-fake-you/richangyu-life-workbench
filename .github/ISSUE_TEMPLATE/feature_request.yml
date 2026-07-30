@@ -1,0 +1,27 @@
+name: 功能建议
+description: 提议一个有明确使用场景的改进
+title: "[Feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    attributes:
+      label: 使用场景
+      description: 谁在什么情况下遇到什么问题？
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 建议方案
+      description: 希望怎样工作？请描述最小可用流程。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 数据与隐私影响
+      description: 会新增哪些数据？如何导出、删除、恢复？是否会发送给第三方？
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 替代方案
+      description: 目前如何解决？为什么不够好？

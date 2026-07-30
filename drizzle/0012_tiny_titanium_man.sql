@@ -1,0 +1,2 @@
+ALTER TABLE `finance_transactions` ADD `recurring_transaction_id` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `finance_transactions_recurring_occurrence_unique` ON `finance_transactions` (`recurring_transaction_id`,`occurred_at`);

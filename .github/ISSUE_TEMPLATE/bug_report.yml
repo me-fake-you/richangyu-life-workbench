@@ -1,0 +1,44 @@
+name: Bug 报告
+description: 报告可复现的问题，请勿附带真实隐私数据或密钥
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: checkboxes
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue
+          required: true
+        - label: 我已移除密钥、真实照片、财务和客户信息
+          required: true
+        - label: 这不是应私密报告的安全漏洞
+          required: true
+  - type: textarea
+    attributes:
+      label: 问题描述
+      description: 发生了什么？你原本期望什么？
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 看到……
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: 版本或提交
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 环境
+      description: 浏览器、系统、桌面/手机、本地或 Cloudflare
+  - type: textarea
+    attributes:
+      label: 脱敏日志或截图
+      description: 不要粘贴 API 密钥、真实记录或对象存储 URL

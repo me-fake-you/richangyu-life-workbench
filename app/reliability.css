@@ -1,0 +1,243 @@
+.reliability-card,
+.demo-card,
+.ai-transparency-card {
+  overflow: hidden;
+}
+
+.health-score {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  margin: 18px 0 14px;
+  padding: 18px;
+  border: 1px solid rgba(76, 129, 108, 0.18);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f1f8f4, #fbfdfc);
+  color: #386b59;
+}
+
+.health-score.attention {
+  border-color: rgba(181, 124, 45, 0.22);
+  background: linear-gradient(135deg, #fff8e9, #fffdf7);
+  color: #8d641f;
+}
+
+.health-score.risk {
+  border-color: rgba(188, 74, 83, 0.22);
+  background: linear-gradient(135deg, #fff1f2, #fffafa);
+  color: #a14049;
+}
+
+.health-score > strong {
+  font: 700 2.35rem/1 var(--font-sans);
+}
+
+.health-score span {
+  display: grid;
+  gap: 4px;
+}
+
+.health-score small,
+.demo-status small,
+.ai-task-list small {
+  color: var(--muted);
+}
+
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.health-metrics span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.health-metrics b {
+  color: var(--ink);
+}
+
+.health-warnings {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff8e9;
+  color: #7f5a1d;
+  font-size: 0.78rem;
+}
+
+.health-warnings span,
+.health-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.health-loading {
+  min-height: 116px;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.reliability-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.reliability-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reliability-actions button:first-child {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.reliability-actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.reliability-actions .danger-soft {
+  color: #ad4551;
+  border-color: rgba(173, 69, 81, 0.25);
+  background: #fff8f8;
+}
+
+.reliability-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.demo-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8f3fc;
+}
+
+.demo-status > span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #b8aebd;
+  box-shadow: 0 0 0 5px rgba(184, 174, 189, 0.12);
+}
+
+.demo-status > span.active {
+  background: #4f8a70;
+  box-shadow: 0 0 0 5px rgba(79, 138, 112, 0.13);
+}
+
+.demo-status div {
+  display: grid;
+  gap: 3px;
+}
+
+.ai-task-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 17px;
+}
+
+.ai-task-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.ai-task-list article > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-task-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-task-list em {
+  color: #ad4551;
+  font-size: 0.75rem;
+  font-style: normal;
+}
+
+.ai-task-state {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #b8aebd;
+}
+
+.ai-task-state.succeeded {
+  background: #4f8a70;
+}
+
+.ai-task-state.failed {
+  background: #d75868;
+}
+
+.ai-task-state.running,
+.ai-task-state.pending {
+  background: #c08d38;
+}
+
+.ai-task-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 74px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .health-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .reliability-actions button {
+    flex: 1 1 calc(50% - 8px);
+  }
+}

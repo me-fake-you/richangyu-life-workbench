@@ -1,0 +1,1 @@
+ALTER TABLE `collection_rows` RENAME COLUMN "values" TO "values_json";

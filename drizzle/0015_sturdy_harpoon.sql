@@ -1,0 +1,1 @@
+ALTER TABLE `feed_items` ADD `image_url` text DEFAULT '' NOT NULL;
