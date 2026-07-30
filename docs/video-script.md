@@ -1,6 +1,6 @@
 # 日常屿三分钟产品讲解脚本
 
-[返回 README](../README.md) · [播放视频](../public/tutorial/richangyu-quick-start.mp4) · [下载字幕](../public/tutorial/richangyu-quick-start.vtt)
+[返回 README](../README.md) · [在线播放](https://me-fake-you.github.io/richangyu-life-workbench/) · [下载 MP4](https://github.com/me-fake-you/richangyu-life-workbench/raw/refs/heads/main/public/tutorial/richangyu-quick-start.mp4) · [下载字幕](../public/tutorial/richangyu-quick-start.vtt)
 
 这份脚本与仓库中的讲解视频、中文字幕使用同一套章节结构。维护界面或产品边界时，应同时更新脚本、字幕、视频和站内使用指南。
 

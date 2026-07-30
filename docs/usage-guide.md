@@ -2,7 +2,7 @@
 
 这份指南适合第一次进入日常屿的用户。不要急着配置全部模块，先完成一次“记录—安排—回顾”即可。
 
-[返回项目首页](../README.md) · [观看三分钟中文讲解视频](../public/tutorial/richangyu-quick-start.mp4) · [字幕与完整旁白](./video-script.md)
+[返回项目首页](../README.md) · [观看三分钟中文讲解视频](https://me-fake-you.github.io/richangyu-life-workbench/) · [下载 MP4](https://github.com/me-fake-you/richangyu-life-workbench/raw/refs/heads/main/public/tutorial/richangyu-quick-start.mp4) · [字幕与完整旁白](./video-script.md)
 
 ## 1. 先选择工作台模式
 

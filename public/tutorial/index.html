@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta
+      name="description"
+      content="日常屿个人生活操作系统三分钟中文产品讲解"
+    />
+    <title>日常屿 · 三分钟产品讲解</title>
+    <style>
+      :root {
+        font-family:
+          Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        color: #2f2731;
+        background: #f4eee8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 32px 18px;
+        background:
+          radial-gradient(circle at 82% 12%, #eadff1 0, transparent 32%),
+          radial-gradient(circle at 12% 88%, #efe2d1 0, transparent 30%),
+          #f4eee8;
+      }
+
+      main {
+        width: min(1080px, 100%);
+        margin: 0 auto;
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: #7a3daf;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "STKaiti", "KaiTi", serif;
+        font-size: clamp(34px, 6vw, 64px);
+        line-height: 1.12;
+      }
+
+      .lead {
+        max-width: 760px;
+        margin: 16px 0 28px;
+        color: #766b72;
+        font-size: 17px;
+        line-height: 1.8;
+      }
+
+      .player {
+        overflow: hidden;
+        padding: 12px;
+        border: 1px solid rgb(122 61 175 / 14%);
+        border-radius: 28px;
+        background: rgb(255 255 255 / 82%);
+        box-shadow: 0 24px 70px rgb(58 40 54 / 13%);
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        border-radius: 19px;
+        background: #241f25;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      a {
+        display: inline-flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid #dfd4df;
+        border-radius: 999px;
+        color: #5c326f;
+        background: rgb(255 255 255 / 74%);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      a.primary {
+        border-color: #7a3daf;
+        color: #fff;
+        background: #7a3daf;
+      }
+
+      .tip {
+        margin-top: 18px;
+        color: #766b72;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">RICHANGYU · QUICK START</p>
+      <h1>三分钟认识日常屿</h1>
+      <p class="lead">
+        从“计划—实际—回忆”出发，了解今日工作台、批量日程、生活收件箱、情报中心、饮食记录、财务与兼职、手机安装，以及 AI 和隐私边界。
+      </p>
+
+      <div class="player">
+        <video
+          controls
+          playsinline
+          preload="metadata"
+          poster="./quick-start-poster.png"
+        >
+          <source src="./richangyu-quick-start.mp4" type="video/mp4" />
+          <track
+            default
+            kind="captions"
+            srclang="zh"
+            label="简体中文"
+            src="./richangyu-quick-start.vtt"
+          />
+          你的浏览器不支持 HTML5 视频，请使用下方按钮下载 MP4。
+        </video>
+      </div>
+
+      <div class="actions">
+        <a class="primary" href="./richangyu-quick-start.mp4" download>下载 MP4</a>
+        <a href="./richangyu-quick-start.vtt" download>下载中文字幕</a>
+        <a href="https://github.com/me-fake-you/richangyu-life-workbench"
+          >返回 GitHub 项目</a
+        >
+        <a
+          href="https://github.com/me-fake-you/richangyu-life-workbench/blob/main/docs/usage-guide.md"
+          >查看图文指南</a
+        >
+      </div>
+
+      <p class="tip">
+        如果视频没有自动加载，请先点击播放按钮；仍无法播放时，可下载 MP4
+        在本机观看。视频不会自动播放，也不会收集观看数据。
+      </p>
+    </main>
+  </body>
+</html>

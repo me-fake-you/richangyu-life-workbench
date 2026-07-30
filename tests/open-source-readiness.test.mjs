@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 test("the repository exposes a safe, self-hostable v1 baseline", async () => {
-  const [pkgRaw, gitignore, envExample, hostingExample, readme, englishReadme, security, deployment] =
+  const [pkgRaw, gitignore, envExample, hostingExample, readme, englishReadme, security, deployment, tutorialPage, pagesWorkflow] =
     await Promise.all([
       readFile(new URL("../package.json", import.meta.url), "utf8"),
       readFile(new URL("../.gitignore", import.meta.url), "utf8"),
@@ -14,6 +14,8 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
       readFile(new URL("../README.en.md", import.meta.url), "utf8"),
       readFile(new URL("../SECURITY.md", import.meta.url), "utf8"),
       readFile(new URL("../docs/deployment-cloudflare.md", import.meta.url), "utf8"),
+      readFile(new URL("../public/tutorial/index.html", import.meta.url), "utf8"),
+      readFile(new URL("../.github/workflows/tutorial-pages.yml", import.meta.url), "utf8"),
     ]);
 
   const pkg = JSON.parse(pkgRaw);
@@ -33,7 +35,11 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
     assert.match(doc, /Cloudflare/i);
   }
   assert.match(readme, /个人生活操作系统/);
+  assert.match(readme, /me-fake-you\.github\.io\/richangyu-life-workbench/);
   assert.match(englishReadme, /personal life operating system/i);
+  assert.match(tutorialPage, /<video[\s\S]*controls/);
+  assert.match(tutorialPage, /richangyu-quick-start\.vtt/);
+  assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);
   assert.match(security, /Cloudflare Access/);
   assert.match(deployment, /D1_DATABASE_ID/);
 });

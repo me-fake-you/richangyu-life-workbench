@@ -14,10 +14,12 @@
 
 ## 三分钟产品讲解
 
-[![播放日常屿中文快速上手视频](./public/tutorial/quick-start-poster.png)](./public/tutorial/richangyu-quick-start.mp4)
+[![播放日常屿中文快速上手视频](./public/tutorial/quick-start-poster.png)](https://me-fake-you.github.io/richangyu-life-workbench/)
 
-点击封面观看约三分钟的中文配音讲解。视频从“计划—实际—回忆”开始，依次演示今日工作台、批量日程、生活收件箱、情报中心、饮食记录、财务与兼职、手机安装，以及 AI 和隐私边界。
+点击封面进入带控制条和中文字幕的公开播放页。视频约三分钟，从“计划—实际—回忆”开始，依次演示今日工作台、批量日程、生活收件箱、情报中心、饮食记录、财务与兼职、手机安装，以及 AI 和隐私边界。
 
+- [在线播放](https://me-fake-you.github.io/richangyu-life-workbench/)
+- [下载 MP4](https://github.com/me-fake-you/richangyu-life-workbench/raw/refs/heads/main/public/tutorial/richangyu-quick-start.mp4)
 - [完整旁白与章节](./docs/video-script.md)
 - [中文字幕](./public/tutorial/richangyu-quick-start.vtt)
 - [逐步图文使用指南](./docs/usage-guide.md)
@@ -52,7 +54,7 @@ flowchart LR
 
 | 饮食与营养 | 开始使用 |
 | --- | --- |
-| ![饮食与营养](./docs/images/04-nutrition-center.png) | [![播放三分钟产品讲解](./public/tutorial/quick-start-poster.png)](./public/tutorial/richangyu-quick-start.mp4) |
+| ![饮食与营养](./docs/images/04-nutrition-center.png) | [![播放三分钟产品讲解](./public/tutorial/quick-start-poster.png)](https://me-fake-you.github.io/richangyu-life-workbench/) |
 | 上传三餐照片后确认食物和份量，保存热量、营养素与长期趋势。 | 视频、中文字幕、站内指南与图文手册共同覆盖第一次使用。 |
 
 ## 第一次使用：五分钟完成一个闭环

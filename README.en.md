@@ -8,9 +8,11 @@ An open-source, privacy-first and self-hostable personal life operating system. 
 
 ## Walkthrough
 
-[![Play the 3-minute Richangyu walkthrough](./public/tutorial/quick-start-poster.png)](./public/tutorial/richangyu-quick-start.mp4)
+[![Play the 3-minute Richangyu walkthrough](./public/tutorial/quick-start-poster.png)](https://me-fake-you.github.io/richangyu-life-workbench/)
 
-The Chinese-narrated walkthrough explains the plan–actual–memory model, Today workspace, batch scheduling, inbox, source-backed intelligence, meal-photo estimates, finance and side-hustle flow, mobile installation, and AI/privacy boundaries. [Chinese captions](./public/tutorial/richangyu-quick-start.vtt) and the [full chapter script](./docs/video-script.md) are included.
+The public player includes controls and Chinese captions. This three-minute walkthrough explains the plan–actual–memory model, Today workspace, batch scheduling, inbox, source-backed intelligence, meal-photo estimates, finance and side-hustle flow, mobile installation, and AI/privacy boundaries.
+
+[Play online](https://me-fake-you.github.io/richangyu-life-workbench/) · [Download MP4](https://github.com/me-fake-you/richangyu-life-workbench/raw/refs/heads/main/public/tutorial/richangyu-quick-start.mp4) · [Chinese captions](./public/tutorial/richangyu-quick-start.vtt) · [Full chapter script](./docs/video-script.md)
 
 ## How the pieces connect
 
