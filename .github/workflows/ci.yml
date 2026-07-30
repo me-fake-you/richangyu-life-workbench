@@ -26,5 +26,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: richangyu-source
-          path: outputs/richangyu-life-workbench-v1.0.0-source.zip
+          path: outputs/richangyu-life-workbench-v*-source.zip
           if-no-files-found: error

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 test("the repository exposes a safe, self-hostable v1 baseline", async () => {
-  const [pkgRaw, gitignore, envExample, hostingExample, readme, englishReadme, security, deployment, tutorialPage, pagesWorkflow] =
+  const [pkgRaw, gitignore, envExample, hostingExample, readme, englishReadme, security, deployment, tutorialPage, pagesWorkflow, ciWorkflow] =
     await Promise.all([
       readFile(new URL("../package.json", import.meta.url), "utf8"),
       readFile(new URL("../.gitignore", import.meta.url), "utf8"),
@@ -16,6 +16,7 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
       readFile(new URL("../docs/deployment-cloudflare.md", import.meta.url), "utf8"),
       readFile(new URL("../public/tutorial/index.html", import.meta.url), "utf8"),
       readFile(new URL("../.github/workflows/tutorial-pages.yml", import.meta.url), "utf8"),
+      readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
     ]);
 
   const pkg = JSON.parse(pkgRaw);
@@ -40,6 +41,7 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
   assert.match(tutorialPage, /<video[\s\S]*controls/);
   assert.match(tutorialPage, /richangyu-quick-start\.vtt/);
   assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);
+  assert.match(ciWorkflow, /outputs\/richangyu-life-workbench-v\*-source\.zip/);
   assert.match(security, /Cloudflare Access/);
   assert.match(deployment, /D1_DATABASE_ID/);
 });
