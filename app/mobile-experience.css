@@ -130,6 +130,11 @@
   color: #95672d;
 }
 
+.mobile-quick-grid .task > span {
+  background: #eee6f6;
+  color: #70408e;
+}
+
 .mobile-quick-grid strong,
 .mobile-quick-grid small {
   display: block;

@@ -7,7 +7,10 @@ import {
   CloudOff,
   CopyPlus,
   Download,
+  Monitor,
   RefreshCw,
+  Save,
+  Smartphone,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -18,9 +21,12 @@ import {
   exportOfflineQueue,
   getOfflineDiagnostics,
   getDeviceId,
+  getDeviceName,
   listOfflineMutations,
   retryOfflineMutation,
+  setDeviceName,
   subscribeToSyncChanges,
+  updateDeviceSession,
   type OfflineMutation,
   type OfflineDiagnostics,
 } from "./offline-sync";
@@ -40,6 +46,20 @@ type ServerState = {
     failed: number;
     lastProcessedAt: string | null;
   };
+  devices?: Array<{
+    deviceId: string;
+    name: string;
+    platform: string;
+    appVersion: string;
+    standalone: boolean;
+    notificationPermission: string;
+    pendingCount: number;
+    conflictCount: number;
+    failedCount: number;
+    firstSeenAt: string | null;
+    lastSeenAt: string | null;
+    lastSyncedAt: string | null;
+  }>;
 };
 
 function fileSize(bytes: number) {
@@ -72,6 +92,7 @@ export function SyncCenter({
   const [online, setOnline] = useState(true);
   const [loading, setLoading] = useState(false);
   const [diagnostics, setDiagnostics] = useState<OfflineDiagnostics | null>(null);
+  const [deviceName, setCurrentDeviceName] = useState("");
 
   const refresh = useCallback(async () => {
     const connected = window.navigator.onLine;
@@ -82,11 +103,13 @@ export function SyncCenter({
     ]);
     setRows(nextRows);
     setDiagnostics(nextDiagnostics);
+    setCurrentDeviceName(getDeviceName());
     if (!connected) {
       setServer(null);
       return;
     }
     try {
+      await updateDeviceSession(nextDiagnostics);
       const response = await fetch(
         `/api/sync?deviceId=${encodeURIComponent(getDeviceId())}`,
         { cache: "no-store" },
@@ -154,6 +177,19 @@ export function SyncCenter({
     onNotice("同步诊断报告已经下载，报告不包含照片原文件。");
   }
 
+  async function saveCurrentDeviceName() {
+    try {
+      setDeviceName(deviceName);
+      const nextDiagnostics = await getOfflineDiagnostics();
+      setDiagnostics(nextDiagnostics);
+      await updateDeviceSession(nextDiagnostics);
+      await refresh();
+      onNotice("设备名称已经保存，手机和电脑更容易区分了。");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "设备名称保存失败。");
+    }
+  }
+
   return (
     <section className="settings-card sync-center-card">
       <div className="panel-heading">
@@ -207,6 +243,65 @@ export function SyncCenter({
             {server?.diagnostics?.receipts ?? 0} 条 ·{" "}
             {server?.diagnostics?.devices ?? 0} 台设备
           </span>
+        </div>
+      )}
+
+      {diagnostics && (
+        <div className="device-session-panel">
+          <div className="device-name-editor">
+            <label htmlFor="current-device-name">这台设备的名称</label>
+            <div>
+              <input
+                id="current-device-name"
+                value={deviceName}
+                maxLength={40}
+                onChange={(event) => setCurrentDeviceName(event.target.value)}
+                placeholder="例如：我的手机"
+              />
+              <button
+                type="button"
+                onClick={() => void saveCurrentDeviceName()}
+                disabled={!online || !deviceName.trim()}
+              >
+                <Save size={14} /> 保存
+              </button>
+            </div>
+          </div>
+          <div className="device-session-list" aria-label="最近使用的设备">
+            {(server?.devices ?? []).map((device) => {
+              const current = device.deviceId === diagnostics.deviceId;
+              const mobile = /Android|iOS/i.test(device.platform);
+              return (
+                <article key={device.deviceId}>
+                  {mobile ? <Smartphone size={18} /> : <Monitor size={18} />}
+                  <div>
+                    <strong>
+                      {device.name}
+                      {current && <em>本机</em>}
+                    </strong>
+                    <small>
+                      {device.platform || "未知平台"} · 最近在线{" "}
+                      {dateText(device.lastSeenAt)}
+                    </small>
+                  </div>
+                  <span
+                    className={
+                      device.conflictCount || device.failedCount ? "issue" : ""
+                    }
+                  >
+                    {device.pendingCount
+                      ? `${device.pendingCount} 条待同步`
+                      : device.conflictCount || device.failedCount
+                        ? `${device.conflictCount + device.failedCount} 条异常`
+                        : "状态正常"}
+                  </span>
+                </article>
+              );
+            })}
+            {!server?.devices?.length && (
+              <p>联网后会在这里显示最近使用过的手机和电脑。</p>
+            )}
+          </div>
         </div>
       )}
 

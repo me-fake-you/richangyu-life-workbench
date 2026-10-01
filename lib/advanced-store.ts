@@ -93,6 +93,68 @@ export async function ensureAdvancedSchema() {
       )
     `),
     DB.prepare(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY NOT NULL,
+        parent_id TEXT,
+        project_id TEXT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT '收件箱',
+        priority TEXT NOT NULL DEFAULT 'P2',
+        due_at TEXT,
+        planned_minutes INTEGER NOT NULL DEFAULT 25,
+        actual_minutes INTEGER NOT NULL DEFAULT 0,
+        estimated_pomodoros INTEGER NOT NULL DEFAULT 1,
+        completed_pomodoros INTEGER NOT NULL DEFAULT 0,
+        today_rank INTEGER,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS tasks_status_due_idx ON tasks(status, due_at)",
+    ),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks(project_id, status)",
+    ),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS tasks_today_rank_idx ON tasks(today_rank) WHERE today_rank IS NOT NULL AND status != '已完成'",
+    ),
+    DB.prepare(`
+      CREATE TABLE IF NOT EXISTS task_focus_sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        task_id TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'stopwatch',
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        minutes INTEGER NOT NULL DEFAULT 0,
+        planned_minutes INTEGER NOT NULL DEFAULT 25,
+        completed INTEGER NOT NULL DEFAULT 0,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS task_focus_sessions_task_started_idx ON task_focus_sessions(task_id, started_at)",
+    ),
+    DB.prepare(`
+      CREATE TABLE IF NOT EXISTS task_schedule_links (
+        task_id TEXT NOT NULL,
+        schedule_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (task_id, schedule_id),
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (schedule_id) REFERENCES schedule_events(id) ON DELETE CASCADE
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS task_schedule_links_schedule_idx ON task_schedule_links(schedule_id)",
+    ),
+    DB.prepare(`
       CREATE TABLE IF NOT EXISTS automations (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
@@ -144,6 +206,21 @@ export async function ensureAdvancedSchema() {
     `),
     DB.prepare(
       "CREATE INDEX IF NOT EXISTS automation_messages_unread_idx ON automation_messages(read_at)",
+    ),
+    DB.prepare(`
+      CREATE TABLE IF NOT EXISTS notification_deliveries (
+        id TEXT PRIMARY KEY NOT NULL,
+        message_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'delivered',
+        delivered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        opened_at TEXT,
+        FOREIGN KEY (message_id) REFERENCES automation_messages(id) ON DELETE CASCADE,
+        UNIQUE(message_id, device_id)
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS notification_deliveries_device_idx ON notification_deliveries(device_id)",
     ),
     DB.prepare(`
       CREATE TABLE IF NOT EXISTS generated_summaries (
@@ -317,6 +394,36 @@ export async function ensureAdvancedSchema() {
       )
     `),
     DB.prepare(`
+      CREATE TABLE IF NOT EXISTS meal_corrections (
+        id TEXT PRIMARY KEY NOT NULL,
+        meal_id TEXT NOT NULL,
+        previous_values_json TEXT NOT NULL DEFAULT '{}',
+        corrected_values_json TEXT NOT NULL DEFAULT '{}',
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS meal_corrections_meal_created_idx ON meal_corrections(meal_id, created_at)",
+    ),
+    DB.prepare(`
+      CREATE TABLE IF NOT EXISTS nutrition_food_memory (
+        key TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        portion TEXT NOT NULL DEFAULT '',
+        calories REAL NOT NULL DEFAULT 0,
+        protein_g REAL NOT NULL DEFAULT 0,
+        carbs_g REAL NOT NULL DEFAULT 0,
+        fat_g REAL NOT NULL DEFAULT 0,
+        correction_count INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS nutrition_food_memory_name_idx ON nutrition_food_memory(name)",
+    ),
+    DB.prepare(`
       CREATE TABLE IF NOT EXISTS meal_media (
         id TEXT PRIMARY KEY NOT NULL,
         meal_id TEXT NOT NULL,
@@ -368,6 +475,25 @@ export async function ensureAdvancedSchema() {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `),
+    DB.prepare(`
+      CREATE TABLE IF NOT EXISTS device_sessions (
+        device_id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT '',
+        app_version TEXT NOT NULL DEFAULT '',
+        standalone INTEGER NOT NULL DEFAULT 0,
+        notification_permission TEXT NOT NULL DEFAULT 'default',
+        pending_count INTEGER NOT NULL DEFAULT 0,
+        conflict_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_synced_at TEXT
+      )
+    `),
+    DB.prepare(
+      "CREATE INDEX IF NOT EXISTS device_sessions_last_seen_idx ON device_sessions(last_seen_at)",
+    ),
     DB.prepare(`
       CREATE TABLE IF NOT EXISTS saved_searches (
         id TEXT PRIMARY KEY NOT NULL,

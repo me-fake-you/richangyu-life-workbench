@@ -7,6 +7,7 @@ type JsonObject = Record<string, unknown>;
 
 type SearchType =
   | "event"
+  | "task"
   | "schedule"
   | "inbox"
   | "table"
@@ -68,6 +69,7 @@ type SearchResult = {
 
 const allowedTypes = new Set<SearchType>([
   "event",
+  "task",
   "schedule",
   "inbox",
   "table",
@@ -86,6 +88,7 @@ const typeMeta: Record<
   { label: string; view: string; source: string }
 > = {
   event: { label: "生活记录", view: "timeline", source: "生活时间线" },
+  task: { label: "任务", view: "tasks", source: "任务规划" },
   schedule: { label: "时间表", view: "schedule", source: "时间表中心" },
   inbox: { label: "收件箱", view: "inbox", source: "生活收件箱" },
   table: { label: "表格", view: "tables", source: "自定义表格库" },
@@ -629,6 +632,39 @@ async function candidatesForType(
            FROM schedule_events se
            WHERE ${clauses.length ? clauses.join(" AND ") : "1 = 1"}
            ORDER BY se.start_at DESC LIMIT 180`;
+  }
+
+  if (type === "task") {
+    if (
+      filters.mood ||
+      filters.person ||
+      filters.place ||
+      filters.tags.length ||
+      filters.hasPhoto ||
+      filters.hasAttachment
+    ) {
+      return [];
+    }
+    addDateClauses(clauses, bindings, "COALESCE(t.due_at, t.updated_at)", filters);
+    if (filters.kind) {
+      clauses.push("(t.priority = ? OR t.status = ?)");
+      bindings.push(filters.kind, filters.kind);
+    }
+    if (filters.project) {
+      clauses.push("p.title LIKE ?");
+      bindings.push(likePattern(filters.project));
+    }
+    fields = ["t.title", "t.description", "t.status", "t.priority", "p.title"];
+    addTextClauses(clauses, bindings, fields, filters.terms);
+    sql = `SELECT t.id, t.title, t.description AS content,
+             t.priority AS category, t.status,
+             COALESCE(t.due_at, t.updated_at) AS occurred_at,
+             '' AS person, '' AS place, COALESCE(p.title, '') AS project,
+             '[]' AS tags, 0 AS attachment_count
+           FROM tasks t
+           LEFT JOIN projects p ON p.id = t.project_id
+           WHERE ${clauses.length ? clauses.join(" AND ") : "1 = 1"}
+           ORDER BY COALESCE(t.due_at, t.updated_at) DESC LIMIT 180`;
   }
 
   if (type === "inbox") {

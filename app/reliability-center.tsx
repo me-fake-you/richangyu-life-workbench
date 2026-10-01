@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  ArchiveRestore,
   Bot,
   CheckCircle2,
   CloudCog,
@@ -82,6 +83,18 @@ type AiTask = {
   };
 };
 
+type Snapshot = {
+  id: string;
+  objectKey: string;
+  status: string;
+  tableCount: number;
+  rowCount: number;
+  fileCount: number;
+  includePrivate: boolean;
+  note: string;
+  createdAt: string | null;
+};
+
 function dateText(value?: string | null) {
   if (!value) return "暂无";
   const date = new Date(value);
@@ -98,14 +111,17 @@ export function ReliabilityCenter({
   const [health, setHealth] = useState<Health | null>(null);
   const [demo, setDemo] = useState<DemoState>({ active: false, count: 0 });
   const [tasks, setTasks] = useState<AiTask[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
-    const [healthResponse, demoResponse, tasksResponse] = await Promise.all([
+    const [healthResponse, demoResponse, tasksResponse, snapshotsResponse] =
+      await Promise.all([
       fetch("/api/health", { cache: "no-store" }),
       fetch("/api/demo", { cache: "no-store" }),
       fetch("/api/ai/tasks", { cache: "no-store" }),
-    ]);
+        fetch("/api/backup/snapshot", { cache: "no-store" }),
+      ]);
     const healthResult = (await healthResponse.json()) as {
       health?: Health;
       error?: string;
@@ -115,12 +131,17 @@ export function ReliabilityCenter({
       tasks?: AiTask[];
       error?: string;
     };
+    const snapshotsResult = (await snapshotsResponse.json()) as {
+      snapshots?: Snapshot[];
+      error?: string;
+    };
     if (!healthResponse.ok || !healthResult.health) {
       throw new Error(healthResult.error || "数据健康检查失败。");
     }
     setHealth(healthResult.health);
     if (demoResponse.ok) setDemo(demoResult);
     if (tasksResponse.ok) setTasks(tasksResult.tasks ?? []);
+    if (snapshotsResponse.ok) setSnapshots(snapshotsResult.snapshots ?? []);
   }, []);
 
   useEffect(() => {
@@ -194,6 +215,38 @@ export function ReliabilityCenter({
       );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "演示模式操作失败。");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function restoreMissing(snapshot: Snapshot) {
+    const confirmation = window.prompt(
+      "这项操作只会补回缺失的数据和附件，不会覆盖或删除当前内容。\n请输入 RESTORE MISSING 继续：",
+    );
+    if (confirmation !== "RESTORE MISSING") return;
+    setBusy(`restore-${snapshot.id}`);
+    try {
+      const response = await fetch("/api/backup/snapshot", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          objectKey: snapshot.objectKey,
+          confirmation,
+        }),
+      });
+      const result = (await response.json()) as {
+        restored?: { rows?: number; files?: number };
+        safety?: string;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "安全恢复失败。");
+      await Promise.all([load(), onWorkspaceReload()]);
+      onNotice(
+        `安全恢复完成：补回 ${result.restored?.rows ?? 0} 行和 ${result.restored?.files ?? 0} 个附件。`,
+      );
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "安全恢复失败。");
     } finally {
       setBusy("");
     }
@@ -299,6 +352,29 @@ export function ReliabilityCenter({
         <p className="reliability-note">
           恢复演练只读取并校验最近快照的清单、校验和与附件副本，不会把备份写回正式数据。
         </p>
+        <div className="snapshot-list" aria-label="最近云端快照">
+          {snapshots.slice(0, 5).map((snapshot) => (
+            <article key={snapshot.id}>
+              <DatabaseBackup size={17} />
+              <div>
+                <strong>{dateText(snapshot.createdAt)}</strong>
+                <small>
+                  {snapshot.rowCount} 行数据 · {snapshot.fileCount} 个附件 ·{" "}
+                  {snapshot.includePrivate ? "含私密内容" : "不含私密内容"}
+                </small>
+              </div>
+              <button
+                type="button"
+                onClick={() => void restoreMissing(snapshot)}
+                disabled={Boolean(busy)}
+              >
+                <ArchiveRestore size={14} />
+                {busy === `restore-${snapshot.id}` ? "正在补回" : "补回缺失内容"}
+              </button>
+            </article>
+          ))}
+          {!snapshots.length && <p>还没有自动快照，先创建一次云端快照。</p>}
+        </div>
       </section>
 
       <section className="settings-card demo-card">

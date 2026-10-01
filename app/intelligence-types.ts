@@ -9,6 +9,15 @@ export type FeedSource = {
   enabled: boolean;
   checkFrequency: string;
   lastCheckedAt: string | null;
+  health: {
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    lastError: string;
+    consecutiveFailures: number;
+    itemCount: number;
+    imageCount: number;
+    updatedAt: string;
+  } | null;
 };
 
 export type FeedItem = {
@@ -23,6 +32,7 @@ export type FeedItem = {
   sourceName: string;
   imageUrl: string;
   publishedAt: string | null;
+  createdAt: string;
   updatedAt: string;
   eventStatus: string;
   topics: string[];
@@ -214,6 +224,13 @@ export type IntelligenceData = {
     generatedBy: string;
     createdAt: string;
   }>;
+  freshness: {
+    lastSuccessfulSyncAt: string | null;
+    freshestPublishedAt: string | null;
+    syncStale: boolean;
+    contentStale: boolean;
+    todayPublishedCount: number;
+  };
   summary: {
     unreadNews: number;
     relevantNews: number;
@@ -240,6 +257,13 @@ export const emptyIntelligenceData: IntelligenceData = {
   alerts: [],
   monitorRuns: [],
   briefs: [],
+  freshness: {
+    lastSuccessfulSyncAt: null,
+    freshestPublishedAt: null,
+    syncStale: true,
+    contentStale: true,
+    todayPublishedCount: 0,
+  },
   summary: {
     unreadNews: 0,
     relevantNews: 0,

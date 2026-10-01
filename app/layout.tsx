@@ -11,13 +11,17 @@ import "./review.css";
 import "./guide.css";
 import "./reliability.css";
 import "./mobile-experience.css";
+import "./task.css";
+import "./workbench-refresh.css";
 import { PwaProvider } from "./pwa-client";
+import { WorkbenchAssistant } from "./workbench-assistant";
+import "./workbench-assistant.css";
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#6f4aa8",
+  themeColor: "#203d32",
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -72,6 +76,7 @@ export default function RootLayout({
           跳到主要内容
         </a>
         <PwaProvider>{children}</PwaProvider>
+        <WorkbenchAssistant />
       </body>
     </html>
   );

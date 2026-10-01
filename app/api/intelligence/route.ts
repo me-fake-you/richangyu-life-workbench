@@ -8,6 +8,24 @@ import { getLifeBindings, safeJson } from "../../../lib/life-store";
 
 type JsonObject = Record<string, unknown>;
 
+const DAY = 86_400_000;
+const BEIJING_OFFSET = 8 * 60 * 60_000;
+const BEIJING_TIMEZONE_OFFSET = -480;
+const NEWS_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const NEWS_RETRY_INTERVAL_MS = 5 * 60 * 1000;
+
+function beijingDayWindow(now = new Date()) {
+  const local = new Date(now.getTime() + BEIJING_OFFSET);
+  const start = new Date(
+    Date.UTC(
+      local.getUTCFullYear(),
+      local.getUTCMonth(),
+      local.getUTCDate(),
+    ) - BEIJING_OFFSET,
+  );
+  return { start, end: new Date(start.getTime() + DAY) };
+}
+
 function text(value: unknown, max = 4000) {
   return String(value ?? "").trim().slice(0, max);
 }
@@ -178,6 +196,7 @@ function camelFeed(row: JsonObject) {
     sourceName: row.source_name,
     imageUrl: row.image_url,
     publishedAt: row.published_at,
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
     eventStatus: row.event_status,
     topics: safeJson(String(row.topics ?? "[]"), [] as string[]),
@@ -244,6 +263,7 @@ export async function GET() {
     const { DB } = getLifeBindings();
     const [
       sourcesResult,
+      sourceHealthResult,
       feedResult,
       subscriptionsResult,
       papersResult,
@@ -259,10 +279,11 @@ export async function GET() {
       briefsResult,
     ] = await DB.batch([
       DB.prepare("SELECT * FROM feed_sources ORDER BY updated_at DESC"),
+      DB.prepare("SELECT * FROM feed_source_health ORDER BY updated_at DESC"),
       DB.prepare(
         `SELECT * FROM feed_items
          WHERE is_ignored = 0
-         ORDER BY updated_at DESC LIMIT 800`,
+         ORDER BY COALESCE(published_at, created_at) DESC LIMIT 800`,
       ),
       DB.prepare(
         "SELECT * FROM topic_subscriptions ORDER BY priority DESC, created_at ASC",
@@ -336,6 +357,20 @@ export async function GET() {
         },
       ]),
     );
+    const healthBySource = new Map(
+      (sourceHealthResult.results as JsonObject[]).map((row) => [
+        String(row.source_id),
+        {
+          lastSuccessAt: row.last_success_at,
+          lastFailureAt: row.last_failure_at,
+          lastError: row.last_error,
+          consecutiveFailures: Number(row.consecutive_failures) || 0,
+          itemCount: Number(row.item_count) || 0,
+          imageCount: Number(row.image_count) || 0,
+          updatedAt: row.updated_at,
+        },
+      ]),
+    );
     const postings = (postingsResult.results as JsonObject[]).map((row) => ({
       id: row.id,
       organizationId: row.organization_id,
@@ -398,6 +433,43 @@ export async function GET() {
       signal: signalByPaper.get(String(row.id)) ?? null,
     }));
     const feedItems = (feedResult.results as JsonObject[]).map(camelFeed);
+    const lastSuccessfulSyncAt =
+      (runsResult.results as JsonObject[])
+        .filter(
+          (row) =>
+            row.target_type === "每日热点" &&
+            ["已完成", "部分完成"].includes(String(row.status)),
+        )
+        .map((row) => String(row.completed_at || row.started_at || ""))
+        .find(Boolean) ||
+      (sourcesResult.results as JsonObject[])
+        .map((row) => String(row.last_checked_at || ""))
+        .filter(Boolean)
+        .sort()
+        .at(-1) ||
+      null;
+    const freshestPublishedAt =
+      feedItems
+        .filter((item) => ["国内", "国际"].includes(String(item.category)))
+        .map((item) => item.publishedAt)
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) || null;
+    const syncAge = lastSuccessfulSyncAt
+      ? now - new Date(lastSuccessfulSyncAt).getTime()
+      : Number.POSITIVE_INFINITY;
+    const todayWindow = beijingDayWindow(new Date(now));
+    const todayPublishedCount = feedItems.filter((item) => {
+      if (!["国内", "国际"].includes(String(item.category))) return false;
+      const timestamp = new Date(
+        String(item.publishedAt || item.createdAt || ""),
+      ).getTime();
+      return (
+        Number.isFinite(timestamp) &&
+        timestamp >= todayWindow.start.getTime() &&
+        timestamp < todayWindow.end.getTime()
+      );
+    }).length;
     const applications = (applicationsResult.results as JsonObject[]).map(
       (row) => ({
         id: row.id,
@@ -427,6 +499,7 @@ export async function GET() {
         enabled: bool(row.enabled),
         checkFrequency: row.check_frequency,
         lastCheckedAt: row.last_checked_at,
+        health: healthBySource.get(String(row.id)) ?? null,
       })),
       feedItems,
       subscriptions: (subscriptionsResult.results as JsonObject[]).map((row) => ({
@@ -519,6 +592,14 @@ export async function GET() {
         generatedBy: row.generated_by,
         createdAt: row.created_at,
       })),
+      freshness: {
+        lastSuccessfulSyncAt,
+        freshestPublishedAt,
+        syncStale:
+          !Number.isFinite(syncAge) || syncAge >= NEWS_REFRESH_INTERVAL_MS,
+        contentStale: todayPublishedCount === 0,
+        todayPublishedCount,
+      },
       summary: {
         unreadNews: feedItems.filter((item) => item.readStatus === "未读").length,
         relevantNews: feedItems.filter(
@@ -593,13 +674,105 @@ export async function POST(request: Request) {
 
     if (action === "daily.refresh") {
       const result = await generateDailyIntelligenceBrief(DB, {
-        timezoneOffset: Math.max(
-          -840,
-          Math.min(840, Number(payload.timezoneOffset) || 0),
-        ),
+        timezoneOffset: BEIJING_TIMEZONE_OFFSET,
         refresh: payload.refresh !== false,
       });
       return Response.json(result, { status: 201 });
+    }
+
+    if (action === "daily.refreshIfStale") {
+      const todayWindow = beijingDayWindow();
+      const [latestSuccess, latestAttempt, latestContent] = await DB.batch([
+        DB.prepare(
+        `SELECT completed_at, started_at
+         FROM monitor_runs
+         WHERE target_type = '每日热点'
+           AND status IN ('已完成', '部分完成')
+         ORDER BY started_at DESC
+         LIMIT 1`,
+        ),
+        DB.prepare(
+          `SELECT completed_at, started_at
+           FROM monitor_runs
+           WHERE target_type = '每日热点'
+           ORDER BY started_at DESC
+           LIMIT 1`,
+        ),
+        DB.prepare(
+          `SELECT
+             MAX(published_at) AS freshest_published_at,
+             SUM(
+               CASE
+                 WHEN datetime(COALESCE(published_at, created_at)) >= datetime(?)
+                  AND datetime(COALESCE(published_at, created_at)) < datetime(?)
+                 THEN 1 ELSE 0
+               END
+             ) AS today_published_count
+           FROM feed_items
+           WHERE is_ignored = 0
+             AND category IN ('国内', '国际')`,
+        ).bind(todayWindow.start.toISOString(), todayWindow.end.toISOString()),
+      ]);
+      const successRow = latestSuccess.results[0] as
+        | { completed_at?: string | null; started_at?: string }
+        | undefined;
+      const attemptRow = latestAttempt.results[0] as
+        | { completed_at?: string | null; started_at?: string }
+        | undefined;
+      const contentRow = latestContent.results[0] as
+        | {
+            freshest_published_at?: string | null;
+            today_published_count?: number | string | null;
+          }
+        | undefined;
+      const lastRunAt =
+        successRow?.started_at || successRow?.completed_at || "";
+      const lastAttemptAt =
+        attemptRow?.completed_at || attemptRow?.started_at || "";
+      const freshestPublishedAt = contentRow?.freshest_published_at || "";
+      const todayPublishedCount =
+        Number(contentRow?.today_published_count) || 0;
+      const syncAge = lastRunAt
+        ? Date.now() - new Date(lastRunAt).getTime()
+        : Number.POSITIVE_INFINITY;
+      const attemptAge = lastAttemptAt
+        ? Date.now() - new Date(lastAttemptAt).getTime()
+        : Number.POSITIVE_INFINITY;
+      const needsRefresh =
+        !Number.isFinite(syncAge) ||
+        syncAge >= NEWS_REFRESH_INTERVAL_MS ||
+        todayPublishedCount === 0;
+      const recentlyAttempted =
+        Number.isFinite(attemptAge) && attemptAge < NEWS_RETRY_INTERVAL_MS;
+      if (!needsRefresh || recentlyAttempted) {
+        return Response.json({
+          refreshed: false,
+          lastRunAt,
+          lastAttemptAt,
+          freshestPublishedAt,
+          todayPublishedCount,
+        });
+      }
+      const sourceRefresh = await refreshIntelligenceSources(DB, undefined, {
+        backfill: false,
+      });
+      const brief =
+        sourceRefresh.addedCount > 0 || todayPublishedCount === 0
+          ? await generateDailyIntelligenceBrief(DB, {
+              timezoneOffset: BEIJING_TIMEZONE_OFFSET,
+              refresh: false,
+            })
+          : null;
+      return Response.json(
+        {
+          refreshed: true,
+          newItemCount: sourceRefresh.addedCount,
+          briefUpdated: Boolean(brief),
+          sourceRefresh,
+          brief,
+        },
+        { status: 201 },
+      );
     }
 
     if (action === "source.check") {
@@ -836,12 +1009,29 @@ export async function POST(request: Request) {
           .join("\n"),
         reminderMinutes: 60,
       });
-      await DB.prepare(
-        "UPDATE feed_items SET read_status = '准备阅读' WHERE id = ?",
-      )
-        .bind(text(payload.id, 200))
-        .run();
-      return Response.json({ scheduleId }, { status: 201 });
+      const taskId = crypto.randomUUID();
+      await DB.batch([
+        DB.prepare(
+          `INSERT INTO tasks
+           (id, title, description, status, priority, due_at, planned_minutes,
+            estimated_pomodoros)
+           VALUES (?, ?, ?, '下一步', 'P2', ?, 30, 1)`,
+        ).bind(
+          taskId,
+          `阅读：${text(item.title, 180)}`,
+          [text(item.summary, 800), text(item.source_url, 1000)]
+            .filter(Boolean)
+            .join("\n"),
+          iso(payload.startAt, new Date(Date.now() + 86400000)),
+        ),
+        DB.prepare(
+          "INSERT INTO task_schedule_links (task_id, schedule_id) VALUES (?, ?)",
+        ).bind(taskId, scheduleId),
+        DB.prepare(
+          "UPDATE feed_items SET read_status = '准备阅读' WHERE id = ?",
+        ).bind(text(payload.id, 200)),
+      ]);
+      return Response.json({ taskId, scheduleId }, { status: 201 });
     }
 
     if (action === "paper.create") {
@@ -933,13 +1123,30 @@ export async function POST(request: Request) {
         reminderMinutes: 120,
       });
       const nextStatus = mode.includes("复现") ? "准备复现" : "准备阅读";
-      await DB.prepare(
-        `UPDATE research_papers
-         SET reading_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      )
-        .bind(nextStatus, text(payload.id, 200))
-        .run();
-      return Response.json({ scheduleId }, { status: 201 });
+      const taskId = crypto.randomUUID();
+      await DB.batch([
+        DB.prepare(
+          `INSERT INTO tasks
+           (id, title, description, status, priority, due_at, planned_minutes,
+            estimated_pomodoros)
+           VALUES (?, ?, ?, '下一步', 'P1', ?, ?, ?)`,
+        ).bind(
+          taskId,
+          `${mode}：${text(paper.title, 180)}`,
+          text(paper.paper_url, 1200),
+          iso(payload.startAt, new Date(Date.now() + 86400000)),
+          mode.includes("复现") ? 120 : 60,
+          mode.includes("复现") ? 4 : 2,
+        ),
+        DB.prepare(
+          "INSERT INTO task_schedule_links (task_id, schedule_id) VALUES (?, ?)",
+        ).bind(taskId, scheduleId),
+        DB.prepare(
+          `UPDATE research_papers
+           SET reading_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        ).bind(nextStatus, text(payload.id, 200)),
+      ]);
+      return Response.json({ taskId, scheduleId }, { status: 201 });
     }
 
     if (action === "organization.create") {
@@ -1389,10 +1596,7 @@ export async function POST(request: Request) {
       const kind = text(payload.kind, 40) || "情报周报";
       if (kind === "情报日报") {
         const result = await generateDailyIntelligenceBrief(DB, {
-          timezoneOffset: Math.max(
-            -840,
-            Math.min(840, Number(payload.timezoneOffset) || 0),
-          ),
+          timezoneOffset: BEIJING_TIMEZONE_OFFSET,
           refresh: payload.refresh !== false,
         });
         return Response.json(result, { status: 201 });

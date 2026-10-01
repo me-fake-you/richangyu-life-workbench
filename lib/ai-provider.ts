@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
+import { generateGroqText, groqConfigured } from "./groq-ai";
 
 type ProviderResult = {
-  provider: "openai" | "nvidia";
+  provider: "openai" | "nvidia" | "groq";
   model: string;
   text: string;
 };
@@ -59,10 +60,17 @@ function nvidiaVisionApiKey() {
   return setting("NVIDIA_VISION_API_KEY") || setting("NVIDIA_API_KEY");
 }
 
+export function configuredAiProvider(capability: "vision"): "openai" | "nvidia" | "local";
+export function configuredAiProvider(capability?: "text"): "openai" | "nvidia" | "groq" | "local";
 export function configuredAiProvider(
   capability: "text" | "vision" = "text",
 ) {
   const preferred = setting("AI_PROVIDER").toLowerCase();
+  if (preferred === "groq") {
+    // Free text mode must not silently call another, potentially paid provider.
+    if (capability === "vision") return "local" as const;
+    return groqConfigured() ? "groq" as const : "local" as const;
+  }
   const nvidiaApiKey =
     capability === "vision" ? nvidiaVisionApiKey() : nvidiaTextApiKey();
   if (
@@ -118,6 +126,9 @@ export async function generateProviderText({
 }): Promise<ProviderResult | null> {
   const provider = configuredAiProvider();
   if (provider === "local") return null;
+  if (provider === "groq") {
+    return generateGroqText({ system, prompt, signal, maxTokens });
+  }
 
   if (provider === "openai") {
     const model = setting("OPENAI_MODEL") || "gpt-5-mini";

@@ -5,12 +5,14 @@ import {
   CalendarPlus,
   Check,
   Command,
+  Compass,
   FileSpreadsheet,
   ImagePlus,
   Layers3,
   LoaderCircle,
   Mic,
   ReceiptText,
+  ListPlus,
   Search,
   Sparkles,
   Trash2,
@@ -29,6 +31,13 @@ type CommandTemplate = {
     type: string;
     options?: string[];
   }>;
+};
+
+export type CommandNavigationTarget = {
+  id: string;
+  label: string;
+  description: string;
+  keywords?: string[];
 };
 
 type RecordAction = {
@@ -60,6 +69,12 @@ type CommandAction = RecordAction | FinanceAction | MealAction;
 type CommandPlan =
   | CommandAction
   | {
+      kind: "task";
+      title: string;
+      priority: string;
+      dueAt: string | null;
+    }
+  | {
       kind: "schedule";
       title: string;
       startAt: string;
@@ -80,12 +95,16 @@ type CommandPlan =
       prompt: string;
     }
   | {
+      kind: "navigate";
+      target: CommandNavigationTarget;
+    }
+  | {
       kind: "bundle";
       actions: CommandAction[];
     };
 
 export type CommandResult = {
-  kind: "record" | "schedule" | "table" | "finance" | "meal";
+  kind: "record" | "task" | "schedule" | "table" | "finance" | "meal";
   id: string;
   title: string;
 };
@@ -137,9 +156,49 @@ function parseTime(text: string) {
   return { hour: Math.min(23, hour), minute: Math.min(59, minute) };
 }
 
-function parseCommand(raw: string, templates: CommandTemplate[]): CommandPlan | null {
+function parseCommand(
+  raw: string,
+  templates: CommandTemplate[],
+  navigationTargets: CommandNavigationTarget[],
+): CommandPlan | null {
   const input = raw.trim();
   if (!input) return null;
+  const navigationMatch = input.match(/^(?:打开|进入|前往|去|切换到)\s*(.+)$/);
+  const navigationQuery = (navigationMatch?.[1] ?? input).trim().toLowerCase();
+  const navigationTarget = navigationTargets.find((target) => {
+    const aliases = [target.label, ...(target.keywords ?? [])].map((item) =>
+      item.toLowerCase(),
+    );
+    return aliases.some(
+      (alias) =>
+        alias === navigationQuery ||
+        (Boolean(navigationMatch) &&
+          (alias.includes(navigationQuery) || navigationQuery.includes(alias))),
+    );
+  });
+  if (navigationTarget) return { kind: "navigate", target: navigationTarget };
+
+  if (/^(添加|创建|新建|记下)(一个|一项)?任务|^(任务|待办)[:：]/.test(input)) {
+    const due = new Date();
+    if (input.includes("后天")) due.setDate(due.getDate() + 2);
+    else if (input.includes("明天")) due.setDate(due.getDate() + 1);
+    const parsedTime = parseTime(input);
+    if (parsedTime) due.setHours(parsedTime.hour, parsedTime.minute, 0, 0);
+    else due.setHours(23, 59, 0, 0);
+    const title = input
+      .replace(/^(添加|创建|新建|记下)(一个|一项)?任务[:：]?/, "")
+      .replace(/^(任务|待办)[:：]?/, "")
+      .replace(/今天|明天|后天/g, "")
+      .replace(/(凌晨|早上|上午|中午|下午|晚上)?\s*\d{1,2}(?:点|时)(?:\d{1,2}分?)?/g, "")
+      .trim();
+    return {
+      kind: "task",
+      title: title || "新的任务",
+      priority: /紧急|必须|P0/i.test(input) ? "P0" : /重要|P1/i.test(input) ? "P1" : "P2",
+      dueAt: /今天|明天|后天|截止/.test(input) ? due.toISOString() : null,
+    };
+  }
+
   const tableMatch = input.match(/(?:建立|创建|新建)(?:一个|一张)?(.+?表)(?:格)?$/);
   if (tableMatch) {
     const wanted = tableMatch[1];
@@ -351,6 +410,17 @@ function planMeta(plan: CommandPlan) {
       ],
     };
   }
+  if (plan.kind === "task") {
+    return {
+      icon: ListPlus,
+      eyebrow: "TASK PLANNER",
+      title: `创建任务：${plan.title}`,
+      details: [
+        `优先级 ${plan.priority}`,
+        plan.dueAt ? `截止 ${new Date(plan.dueAt).toLocaleString("zh-CN")}` : "稍后再安排时间",
+      ],
+    };
+  }
   if (plan.kind === "table") {
     return {
       icon: FileSpreadsheet,
@@ -368,6 +438,14 @@ function planMeta(plan: CommandPlan) {
       eyebrow: "LIFE ASSISTANT",
       title: plan.prompt,
       details: ["只读取非私密站内数据", "回答会标注模型与原始记录数量"],
+    };
+  }
+  if (plan.kind === "navigate") {
+    return {
+      icon: Compass,
+      eyebrow: "QUICK NAVIGATION",
+      title: `打开${plan.target.label}`,
+      details: [plan.target.description, "不会修改任何数据"],
     };
   }
   if (plan.kind === "finance") {
@@ -417,19 +495,23 @@ function planMeta(plan: CommandPlan) {
 
 export function CommandPalette({
   templates,
+  navigationTargets,
   onClose,
   onCreateRecord,
   onCreateSchedule,
+  onCreateTask,
   onCreateTable,
   onCreateTransaction,
   onCreateMeal,
   onUndo,
   onSearch,
+  onNavigate,
   onOpenRecord,
   onOpenSchedule,
   onNotice,
 }: {
   templates: CommandTemplate[];
+  navigationTargets: CommandNavigationTarget[];
   onClose: () => void;
   onCreateRecord: (payload: {
     title: string;
@@ -438,6 +520,7 @@ export function CommandPalette({
     mood: string;
   }, photo?: File | null) => Promise<CommandResult>;
   onCreateSchedule: (payload: Record<string, unknown>) => Promise<CommandResult>;
+  onCreateTask: (payload: Record<string, unknown>) => Promise<CommandResult>;
   onCreateTable: (template: CommandTemplate) => Promise<CommandResult>;
   onCreateTransaction: (payload: Record<string, unknown>) => Promise<CommandResult>;
   onCreateMeal: (
@@ -446,6 +529,7 @@ export function CommandPalette({
   ) => Promise<CommandResult>;
   onUndo: (results: CommandResult[]) => Promise<void>;
   onSearch: (query: string) => void;
+  onNavigate: (targetId: string) => void;
   onOpenRecord: () => void;
   onOpenSchedule: () => void;
   onNotice: (notice: string) => void;
@@ -463,7 +547,10 @@ export function CommandPalette({
     model: string;
     sourceCount: number;
   } | null>(null);
-  const plan = useMemo(() => parseCommand(input, templates), [input, templates]);
+  const plan = useMemo(
+    () => parseCommand(input, templates, navigationTargets),
+    [input, navigationTargets, templates],
+  );
   const meta = plan ? planMeta(plan) : null;
 
   async function executeAction(action: CommandAction) {
@@ -479,6 +566,11 @@ export function CommandPalette({
       onClose();
       return;
     }
+    if (plan.kind === "navigate") {
+      onNavigate(plan.target.id);
+      onClose();
+      return;
+    }
     setBusy(true);
     try {
       if (plan.kind === "record") {
@@ -489,6 +581,8 @@ export function CommandPalette({
           repeatRule: "不重复",
           reminderMinutes: 10,
         })]);
+      } else if (plan.kind === "task") {
+        setCompleted([await onCreateTask(plan)]);
       } else if (plan.kind === "table") {
         setCompleted([await onCreateTable(plan.template)]);
       } else if (plan.kind === "finance") {
@@ -569,7 +663,7 @@ export function CommandPalette({
               if (event.key === "Escape") onClose();
               if (event.key === "Enter" && !event.nativeEvent.isComposing) void execute();
             }}
-            placeholder="安排日程、记录生活、创建表格、搜索或问 AI…"
+            placeholder="搜索、记录、创建或打开任意模块…"
             autoFocus
           />
           <input
@@ -609,11 +703,29 @@ export function CommandPalette({
           <div className="command-welcome">
             <div>
               <span className="eyebrow">ONE PLACE TO DO EVERYTHING</span>
-              <h2>用一句话操作生活工作台</h2>
-              <p>系统会先理解成可检查的动作，只有点击确认后才会写入数据。</p>
+              <h2>从一个入口到达所有事情</h2>
+              <p>可以搜索和打开模块，也可以用一句话创建记录、日程与表格；写入前仍会先预览。</p>
+            </div>
+            <div className="command-navigation">
+              <small>快速前往</small>
+              <div>
+                {navigationTargets.slice(0, 8).map((target) => (
+                  <button
+                    key={target.id}
+                    onClick={() => {
+                      onNavigate(target.id);
+                      onClose();
+                    }}
+                  >
+                    <Compass size={14} />
+                    <span>{target.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="command-examples">
               {[
+                "打开财务中心",
                 "明天晚上7点安排一小时英语学习",
                 "午饭鸡肉饭，花了32元，心情不错",
                 "记录今天第一次给初一3班上Python课，心情很好",
@@ -706,13 +818,21 @@ export function CommandPalette({
             <span>
               {plan.kind === "ask"
                 ? "AI 只读取站内非私密内容，本次不会写入正式记录。"
+                : plan.kind === "navigate"
+                  ? "将直接打开目标模块，不会修改数据。"
                 : plan.kind === "bundle"
                   ? `将同时写入 ${plan.actions.length} 个模块，请确认后执行。`
                   : "请确认预览内容，执行后会同步到对应模块。"}
             </span>
             <button onClick={() => void execute()} disabled={busy}>
               {busy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
-              {plan.kind === "ask" ? "开始分析" : plan.kind === "search" ? "打开搜索" : "确认执行"}
+              {plan.kind === "ask"
+                ? "开始分析"
+                : plan.kind === "search"
+                  ? "打开搜索"
+                  : plan.kind === "navigate"
+                    ? "打开模块"
+                    : "确认执行"}
             </button>
           </footer>
         )}

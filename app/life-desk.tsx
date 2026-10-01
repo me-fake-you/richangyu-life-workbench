@@ -13,7 +13,6 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
-  Command,
   Download,
   EyeOff,
   FileSpreadsheet,
@@ -28,12 +27,15 @@ import {
   LayoutDashboard,
   Leaf,
   List,
+  ListChecks,
   LoaderCircle,
   Menu,
   MoreHorizontal,
   Network,
   Newspaper,
   Pencil,
+  Pause,
+  Play,
   Plus,
   Repeat2,
   Radar,
@@ -44,6 +46,7 @@ import {
   Sparkles,
   Table2,
   Target,
+  TimerReset,
   Trash2,
   TrendingUp,
   Upload,
@@ -67,8 +70,10 @@ import {
   ScheduleReminderWatcher,
 } from "./advanced-center";
 import { ConfigurableDashboard } from "./configurable-dashboard";
+import { HomeStudio } from "./home-studio";
 import {
   CommandPalette,
+  type CommandNavigationTarget,
   type CommandResult,
 } from "./command-palette";
 import { DataPortabilityCenter } from "./data-portability-center";
@@ -93,6 +98,13 @@ import { SyncStatus } from "./sync-status";
 import { SyncCenter } from "./sync-center";
 import { ReliabilityCenter } from "./reliability-center";
 import { FirstRunGuide } from "./user-guide";
+import {
+  type FocusClockController,
+  type FocusSession as SharedFocusSession,
+  focusDisplay,
+  focusElapsedMs,
+  useFocusClock,
+} from "./focus-clock";
 
 const AdvancedCenter = lazy(() =>
   import("./advanced-center").then((module) => ({
@@ -140,9 +152,13 @@ const TopicSpaces = lazy(() =>
 const UserGuide = lazy(() =>
   import("./user-guide").then((module) => ({ default: module.UserGuide })),
 );
+const TaskCenter = lazy(() =>
+  import("./task-center").then((module) => ({ default: module.TaskCenter })),
+);
 
 type ViewId =
   | "today"
+  | "tasks"
   | "schedule"
   | "timeline"
   | "calendar"
@@ -228,6 +244,7 @@ type ScheduleEvent = {
   status: string;
   plannedMinutes: number;
   actualMinutes: number;
+  taskId?: string | null;
   actualStartAt?: string | null;
   actualEndAt?: string | null;
   interruptionReason?: string;
@@ -239,6 +256,8 @@ type ScheduleEvent = {
   customUnit?: string | null;
   createdAt: string;
 };
+
+type FocusSession = SharedFocusSession;
 
 type InboxItem = {
   id: string;
@@ -343,6 +362,7 @@ const eventKinds = [
 ];
 
 const scheduleCategories = [
+  "任务",
   "课程",
   "学习",
   "科研",
@@ -609,6 +629,7 @@ const navGroups: Array<{
     title: "生活主线",
     items: [
       { id: "today", label: "今日", icon: LayoutDashboard },
+      { id: "tasks", label: "任务规划", icon: ListChecks },
       { id: "schedule", label: "时间表中心", icon: Clock3 },
       { id: "timeline", label: "生活时间线", icon: Archive },
       { id: "calendar", label: "生活日历", icon: CalendarDays },
@@ -691,6 +712,7 @@ const mobileShortcutMeta: Record<
 
 const simpleCoreModules: ViewId[] = [
   "today",
+  "tasks",
   "schedule",
   "timeline",
   "review",
@@ -699,6 +721,7 @@ const simpleCoreModules: ViewId[] = [
 
 const pageTitles: Record<ViewId, [string, string]> = {
   today: ["今日工作台", "安排今天，也留下今天"],
+  tasks: ["任务规划", "收集、选择、安排与专注在同一个执行闭环"],
   schedule: ["时间表中心", "计划、执行与复盘在同一条时间轴"],
   timeline: ["生活时间线", "所有发生过的事，都有来处"],
   calendar: ["生活日历", "按日期重新找到生活"],
@@ -957,6 +980,35 @@ function Stat({
   );
 }
 
+function GlobalFocusIndicator({
+  hidden,
+  onOpen,
+  controller,
+}: {
+  hidden: boolean;
+  onOpen: () => void;
+  controller: FocusClockController;
+}) {
+  const { session, now } = controller;
+  if (hidden || !session) return null;
+  return (
+    <button
+      className="global-focus-indicator"
+      onClick={onOpen}
+      aria-label={`返回正在计时的${session.targetType === "task" ? "任务" : "日程"}：${session.title}`}
+    >
+      <span className={session.status}>
+        {session.status === "running" ? <Play size={14} /> : <Pause size={14} />}
+      </span>
+      <span>
+        <small>{session.status === "running" ? "正在专注" : "计时已暂停"}</small>
+        <strong>{session.title}</strong>
+      </span>
+      <time>{focusDisplay(session, now)}</time>
+    </button>
+  );
+}
+
 function EmptyBlock({
   icon: Icon,
   title,
@@ -1072,11 +1124,14 @@ function EventCard({
 }
 
 export function LifeDesk() {
-  const today = useMemo(() => new Date(), []);
+  const [today, setToday] = useState(() => new Date());
+  const focusClockController = useFocusClock();
   const [view, setView] = useState<ViewId>("today");
+  const [recentViews, setRecentViews] = useState<ViewId[]>([]);
   const [data, setData] = useState<WorkspaceData>(initialData);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [moduleQuery, setModuleQuery] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [focusedEventId, setFocusedEventId] = useState("");
@@ -1148,6 +1203,27 @@ export function LifeDesk() {
     return () => window.clearTimeout(timer);
     // The initial workspace request runs only when the shell is mounted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const restoreRecentViews = window.setTimeout(() => {
+      const saved = window.localStorage.getItem("life-workbench-recent-views");
+      if (!saved) return;
+      try {
+        setRecentViews(
+          (JSON.parse(saved) as ViewId[])
+            .filter((item) => item !== "today")
+            .slice(0, 4),
+        );
+      } catch {
+        window.localStorage.removeItem("life-workbench-recent-views");
+      }
+    }, 0);
+    const clock = window.setInterval(() => setToday(new Date()), 60_000);
+    return () => {
+      window.clearTimeout(restoreRecentViews);
+      window.clearInterval(clock);
+    };
   }, []);
 
   useEffect(() => {
@@ -1349,12 +1425,6 @@ export function LifeDesk() {
     (event) => !event.deletedAt && event.isPrivate,
   );
   const deletedEvents = data.events.filter((event) => Boolean(event.deletedAt));
-  const todayEvents = activeEvents.filter(
-    (event) => dayKey(event.happenedAt) === dayKey(today),
-  );
-  const todaySchedules = data.schedules.filter(
-    (event) => dayKey(event.startAt) === dayKey(today),
-  );
   const pendingInbox = data.inbox.filter((item) => item.status === "待整理");
   const allPhotos = activeEvents.flatMap((event) =>
     event.photos.map((photo) => ({ event, photo })),
@@ -1396,6 +1466,26 @@ export function LifeDesk() {
   const mobileShortcut =
     mobileShortcutMeta[workbenchPreferences.mobileShortcut];
   const MobileShortcutIcon = mobileShortcut.icon;
+  const allNavItems = navGroups.flatMap((group) => group.items);
+  const filteredNavGroups = moduleQuery.trim()
+    ? [{ title: "搜索结果", items: allNavItems.filter((item) =>
+        `${item.label} ${pageTitles[item.id].join(" ")}`.toLowerCase().includes(moduleQuery.trim().toLowerCase()),
+      ) }]
+    : visibleNavGroups;
+  const recentNavItems = recentViews
+    .map((id) => allNavItems.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const commandNavigationTargets: CommandNavigationTarget[] = [
+    ...recentNavItems,
+    ...allNavItems.filter(
+      (item) => !recentViews.includes(item.id) && item.id !== "today",
+    ),
+  ].map((item) => ({
+    id: item.id,
+    label: item.label,
+    description: pageTitles[item.id][1],
+    keywords: [pageTitles[item.id][0], pageTitles[item.id][1]],
+  }));
 
   async function saveRecord(
     form: HTMLFormElement,
@@ -1586,6 +1676,28 @@ export function LifeDesk() {
     };
   }
 
+  async function createCommandTask(
+    payload: Record<string, unknown>,
+  ): Promise<CommandResult> {
+    const response = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "task.create",
+        payload: {
+          ...payload,
+          status: "收件箱",
+          plannedMinutes: 25,
+          estimatedPomodoros: 1,
+        },
+      }),
+    });
+    const body = (await response.json()) as { id?: string; error?: string };
+    if (!response.ok) throw new Error(body.error || "任务创建失败。");
+    setNotice("指令已经转换成一项任务。");
+    return { kind: "task", id: String(body.id), title: "任务" };
+  }
+
   async function createCommandTransaction(
     payload: Record<string, unknown>,
   ): Promise<CommandResult> {
@@ -1669,6 +1781,13 @@ export function LifeDesk() {
           seriesId: result.id,
           scope: "series",
         });
+      } else if (result.kind === "task") {
+        const response = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "task.delete", payload: { id: result.id } }),
+        });
+        if (!response.ok) throw new Error("任务撤销失败。");
       } else if (result.kind === "table") {
         await workspaceAction("collection.delete", { id: result.id });
       } else if (result.kind === "finance") {
@@ -1783,6 +1902,19 @@ export function LifeDesk() {
     setView(next);
     setSidebarOpen(false);
     setGlobalSearch("");
+    if (next !== "today") {
+      setRecentViews((current) => {
+        const updated = [next, ...current.filter((item) => item !== next)].slice(
+          0,
+          4,
+        );
+        window.localStorage.setItem(
+          "life-workbench-recent-views",
+          JSON.stringify(updated),
+        );
+        return updated;
+      });
+    }
   }
 
   function openMobileQuick(voiceFirst = false) {
@@ -1792,7 +1924,7 @@ export function LifeDesk() {
   }
 
   return (
-    <main className="app-shell" id="main-content">
+    <main className="app-shell" id="main-content" data-view={view}>
       <FirstRunGuide onNavigate={(next) => changeView(next as ViewId)} />
       <ScheduleReminderWatcher
         schedules={data.schedules}
@@ -1816,15 +1948,41 @@ export function LifeDesk() {
           </button>
         </div>
 
+        <label className="module-finder">
+          <Search size={15} />
+          <input aria-label="查找工作台功能" placeholder="查找功能…" value={moduleQuery}
+            onChange={(event) => setModuleQuery(event.target.value)} />
+          {moduleQuery && <button type="button" aria-label="清除功能搜索" onClick={() => setModuleQuery("")}><X size={13} /></button>}
+        </label>
+
+        {recentNavItems.length > 0 && !moduleQuery && (
+          <div className="recent-nav" aria-label="最近使用">
+            <span>最近使用</span>
+            <div>
+              {recentNavItems.slice(0, 3).map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  className={view === id ? "active" : ""}
+                  onClick={() => changeView(id)}
+                  title={label}
+                >
+                  <Icon size={15} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <nav className="side-nav" aria-label="工作台导航">
-          {visibleNavGroups.map((group) => (
+          {filteredNavGroups.map((group) => (
             <div className="nav-group" key={group.title}>
               <p>{group.title}</p>
               {group.items.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   className={view === id ? "active" : ""}
-                  onClick={() => changeView(id)}
+                  onClick={() => { changeView(id); setModuleQuery(""); }}
                 >
                   <Icon size={18} strokeWidth={1.8} />
                   <span>{label}</span>
@@ -1835,7 +1993,8 @@ export function LifeDesk() {
               ))}
             </div>
           ))}
-          {workbenchPreferences.workspaceMode === "simple" && (
+          {moduleQuery && filteredNavGroups[0].items.length === 0 && <p className="module-no-results">没有找到对应功能，试试“日程”“财务”或“打卡”。</p>}
+          {workbenchPreferences.workspaceMode === "simple" && !moduleQuery && (
             <button
               className="nav-mode-toggle"
               onClick={() => setShowAllModules((current) => !current)}
@@ -1852,8 +2011,8 @@ export function LifeDesk() {
             <Target size={16} />
           </span>
           <div>
-            <strong>当前目标</strong>
-            <p>把计划、情报、行动与记忆连接起来</p>
+            <strong>给日常留一点空间</strong>
+            <p>重要的事，逐件完成。值得记住的，慢慢留下。</p>
           </div>
         </div>
 
@@ -1900,48 +2059,13 @@ export function LifeDesk() {
               onNotice={setNotice}
             />
             <button
-              className="command-trigger"
+              className="universal-trigger"
               onClick={() => setCommandOpen(true)}
-              title="全局指令栏"
-            >
-              <Command size={16} />
-              <span>指令</span>
-              <kbd>Ctrl K</kbd>
-            </button>
-            <div
-              className="search-box"
-              onClick={() => setSearchOpen(true)}
-              role="search"
+              title="搜索、记录、创建或打开模块"
             >
               <Search size={17} />
-              <input
-                value={globalSearch}
-                onFocus={() => setSearchOpen(true)}
-                onChange={(event) => {
-                  setGlobalSearch(event.target.value);
-                  setSearchOpen(true);
-                }}
-                placeholder="搜索文字、人物、地点、课程、表格…"
-                aria-label="全局搜索"
-              />
-              {globalSearch && (
-                <button
-                  onClick={() => {
-                    setGlobalSearch("");
-                    setSearchOpen(true);
-                  }}
-                  aria-label="清空搜索"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <button
-              className="secondary-button desktop-only"
-              onClick={() => setInboxOpen(true)}
-            >
-              <Inbox size={16} />
-              放入收件箱
+              <span>搜索、记录或创建…</span>
+              <kbd>Ctrl K</kbd>
             </button>
             <button
               className="icon-button desktop-only"
@@ -1961,6 +2085,22 @@ export function LifeDesk() {
           </div>
         </header>
 
+        <GlobalFocusIndicator
+          hidden={
+            view === "today" ||
+            (view === "schedule" && focusClockController.session?.targetType === "schedule") ||
+            (view === "tasks" && focusClockController.session?.targetType === "task")
+          }
+          controller={focusClockController}
+          onOpen={() =>
+            changeView(
+              focusClockController.session?.targetType === "task"
+                ? "tasks"
+                : "schedule",
+            )
+          }
+        />
+
         <div className="page-content">
           {loading ? (
             <div className="loading-state">
@@ -1977,23 +2117,32 @@ export function LifeDesk() {
               }
             >
               {view === "today" && (
-                <TodayView
+                <HomeStudio
                   today={today}
-                  events={todayEvents}
-                  allEvents={activeEvents}
-                  schedules={todaySchedules}
+                  events={activeEvents}
+                  schedules={data.schedules}
                   inboxCount={pendingInbox.length}
-                  totalDays={new Set(activeEvents.map((event) => dayKey(event.happenedAt))).size}
-                  photoCount={allPhotos.length}
+                  focusClock={focusClockController}
                   onRecord={() => setRecordOpen(true)}
-                  onSchedule={() => setScheduleOpen(true)}
-                  onInbox={() => setInboxOpen(true)}
-                  onDelete={deleteEvent}
-                  onEdit={(event) => {
-                    setEditingEvent(event);
-                    setRecordOpen(true);
+                  onSchedule={(date) => {
+                    setEditingSchedule(null);
+                    setScheduleSeedDate(date ?? null);
+                    setScheduleOpen(true);
                   }}
-                  onView={changeView}
+                  onInbox={() => setInboxOpen(true)}
+                  onCommand={() => setCommandOpen(true)}
+                  onEdit={(id) => {
+                    const event = activeEvents.find((item) => item.id === id);
+                    if (event) { setEditingEvent(event); setRecordOpen(true); }
+                  }}
+                  onView={(next) => changeView(next as ViewId)}
+                  onReload={() => loadWorkspace()}
+                  onNotice={setNotice}
+                  dashboard={<ConfigurableDashboard
+                    events={activeEvents} schedules={data.schedules}
+                    inboxCount={pendingInbox.length} photoCount={allPhotos.length}
+                    onView={(next) => changeView(next as ViewId)}
+                  />}
                 />
               )}
 
@@ -2017,6 +2166,15 @@ export function LifeDesk() {
                   onRefresh={() => loadWorkspace()}
                   onAction={workspaceAction}
                   setNotice={setNotice}
+                  focusClockController={focusClockController}
+                />
+              )}
+
+              {view === "tasks" && (
+                <TaskCenter
+                  focusClock={focusClockController}
+                  onNotice={setNotice}
+                  onScheduleReload={() => loadWorkspace()}
                 />
               )}
 
@@ -2207,10 +2365,11 @@ export function LifeDesk() {
 
         <button
           className="floating-add"
-          onClick={() => setCommandOpen(true)}
-          aria-label="打开全局指令栏"
+          onClick={() => setRecordOpen(true)}
+          aria-label="快速记录此刻"
         >
-          <Command size={21} />
+          <Plus size={20} />
+          <span>记录此刻</span>
         </button>
 
         <nav className="mobile-nav" aria-label="手机端导航">
@@ -2222,11 +2381,11 @@ export function LifeDesk() {
             <span>今日</span>
           </button>
           <button
-            className={view === "schedule" ? "active" : ""}
-            onClick={() => changeView("schedule")}
+            className={view === "tasks" ? "active" : ""}
+            onClick={() => changeView("tasks")}
           >
-            <Clock3 size={20} />
-            <span>时间表</span>
+            <ListChecks size={20} />
+            <span>任务</span>
           </button>
           <button
             className="mobile-create"
@@ -2287,6 +2446,10 @@ export function LifeDesk() {
           setQuickRecordFiles([]);
           setRecordOpen(true);
         }}
+        onTask={() => {
+          setMobileQuickOpen(false);
+          changeView("tasks");
+        }}
         onPhoto={(file) => {
           setMobileQuickOpen(false);
           setEditingEvent(null);
@@ -2317,9 +2480,11 @@ export function LifeDesk() {
       {commandOpen && (
         <CommandPalette
           templates={templateLibrary}
+          navigationTargets={commandNavigationTargets}
           onClose={() => setCommandOpen(false)}
           onCreateRecord={createCommandRecord}
           onCreateSchedule={createCommandSchedule}
+          onCreateTask={createCommandTask}
           onCreateTable={createCommandTable}
           onCreateTransaction={createCommandTransaction}
           onCreateMeal={createCommandMeal}
@@ -2329,6 +2494,7 @@ export function LifeDesk() {
             setView("today");
             setSearchOpen(true);
           }}
+          onNavigate={(targetId) => changeView(targetId as ViewId)}
           onOpenRecord={() => {
             setCommandOpen(false);
             setRecordOpen(true);
@@ -2521,250 +2687,6 @@ export function LifeDesk() {
   );
 }
 
-function TodayView({
-  today,
-  events,
-  allEvents,
-  schedules,
-  inboxCount,
-  totalDays,
-  photoCount,
-  onRecord,
-  onSchedule,
-  onInbox,
-  onDelete,
-  onEdit,
-  onView,
-}: {
-  today: Date;
-  events: LifeEvent[];
-  allEvents: LifeEvent[];
-  schedules: ScheduleEvent[];
-  inboxCount: number;
-  totalDays: number;
-  photoCount: number;
-  onRecord: () => void;
-  onSchedule: () => void;
-  onInbox: () => void;
-  onDelete: (event: LifeEvent) => void;
-  onEdit: (event: LifeEvent) => void;
-  onView: (view: ViewId) => void;
-}) {
-  return (
-    <div className="today-layout">
-      <section className="today-main">
-        <div className="today-hero">
-          <div className="hero-copy">
-            <span className="eyebrow">
-              {today.getFullYear()} · {dateLabel(today)}
-            </span>
-            <h1>
-              生活不只需要安排，
-              <br />
-              也值得被好好看见。
-            </h1>
-            <p>
-              时间表负责计划，时间线记录真实发生，
-              <br />
-              表格管理长期内容，总结帮你理解生活。
-            </p>
-            <div className="hero-actions">
-              <button className="light-button" onClick={onRecord}>
-                <Plus size={17} />
-                记录此刻
-              </button>
-              <button className="ghost-button" onClick={onSchedule}>
-                <Clock3 size={17} />
-                安排时间
-              </button>
-            </div>
-          </div>
-          <div className="hero-stats">
-            <Stat value={events.length} label="今日事件" />
-            <Stat value={schedules.length} label="今日安排" />
-            <Stat value={totalDays} label="记录日" />
-            <Stat value={photoCount} label="生活照片" />
-          </div>
-          <div className="hero-orbit orbit-a" />
-          <div className="hero-orbit orbit-b" />
-        </div>
-
-        <ConfigurableDashboard
-          events={allEvents}
-          schedules={schedules}
-          inboxCount={inboxCount}
-          photoCount={photoCount}
-          onView={(next) => onView(next as ViewId)}
-        />
-
-        <section className="dashboard-card schedule-preview">
-          <div className="section-heading">
-            <div>
-              <span className="heading-icon purple">
-                <Clock3 size={18} />
-              </span>
-              <div>
-                <span className="eyebrow">TODAY SCHEDULE</span>
-                <h2>今日时间表</h2>
-              </div>
-            </div>
-            <button className="text-link" onClick={() => onView("schedule")}>
-              打开时间表中心 <ChevronRight size={15} />
-            </button>
-          </div>
-          {schedules.length > 0 ? (
-            <div className="mini-schedule-list">
-              {schedules.slice(0, 5).map((item) => (
-                <div key={item.id}>
-                  <span className={`category-dot category-${item.category}`} />
-                  <time>
-                    {timeLabel(item.startAt)}
-                    <small>{timeLabel(item.endAt)}</small>
-                  </time>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>
-                      {item.category}
-                      {item.place ? ` · ${item.place}` : ""}
-                    </p>
-                  </div>
-                  <em className={item.status === "已完成" ? "done" : ""}>
-                    {item.status}
-                  </em>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="inline-empty">
-              <p>今天还没有安排。可以先放进一个时间块。</p>
-              <button onClick={onSchedule}>＋ 新建日程</button>
-            </div>
-          )}
-        </section>
-
-        <section className="today-events">
-          <div className="section-heading">
-            <div>
-              <span className="heading-icon rose">
-                <Leaf size={18} />
-              </span>
-              <div>
-                <span className="eyebrow">TODAY TIMELINE</span>
-                <h2>今天实际发生了什么</h2>
-              </div>
-            </div>
-            {events.length > 0 && (
-              <button className="text-link" onClick={() => onView("timeline")}>
-                全部记录 <ChevronRight size={15} />
-              </button>
-            )}
-          </div>
-          {events.length > 0 ? (
-            events.map((event) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                onDelete={onDelete}
-                onEdit={onEdit}
-              />
-            ))
-          ) : (
-            <EmptyBlock
-              icon={Camera}
-              title="今天还是一张空白明信片"
-              copy="一句话、一张照片、一次课程或一个小小的完成，都可以成为生活事件。"
-              action="记录今天"
-              onAction={onRecord}
-            />
-          )}
-        </section>
-      </section>
-
-      <aside className="today-aside">
-        <section className="aside-card quick-inbox">
-          <div className="aside-title">
-            <span>
-              <Inbox size={16} />
-            </span>
-            <div>
-              <strong>生活收件箱</strong>
-              <small>先收下，稍后整理</small>
-            </div>
-            <em>{inboxCount}</em>
-          </div>
-          <button onClick={onInbox}>
-            <Plus size={16} />
-            放入一个想法、链接或线索
-          </button>
-        </section>
-
-        <section className="aside-card top-three">
-          <div className="aside-title">
-            <span className="amber">
-              <Target size={16} />
-            </span>
-            <div>
-              <strong>今日三件事</strong>
-              <small>从时间表里聚焦重点</small>
-            </div>
-          </div>
-          {[0, 1, 2].map((index) => {
-            const item = schedules[index];
-            return (
-              <div className="priority-line" key={index}>
-                <span className={item?.status === "已完成" ? "checked" : ""}>
-                  {item?.status === "已完成" && <Check size={12} />}
-                </span>
-                <p>{item?.title || "还可以放进一件重要的事"}</p>
-              </div>
-            );
-          })}
-        </section>
-
-        <section className="aside-card plan-actual">
-          <div className="aside-title">
-            <span className="green">
-              <TrendingUp size={16} />
-            </span>
-            <div>
-              <strong>计划与实际</strong>
-              <small>完成日程后自动比较</small>
-            </div>
-          </div>
-          <div className="plan-ring">
-            <strong>
-              {schedules.length
-                ? Math.round(
-                    (schedules.filter((item) => item.status === "已完成").length /
-                      schedules.length) *
-                      100,
-                  )
-                : 0}
-              %
-            </strong>
-            <span>今日完成率</span>
-          </div>
-          <button className="wide-link" onClick={() => onView("review")}>
-            查看投入分析 <ChevronRight size={15} />
-          </button>
-        </section>
-
-        <section className="aside-card memory-letter">
-          <span className="eyebrow">TODAY, AS IT IS</span>
-          <blockquote>
-            {events.length
-              ? `“今天已经留下 ${events.length} 个真实片段。完成与未完成，都在帮助你更了解自己的节奏。”`
-              : schedules.length
-                ? `“今天有 ${schedules.length} 项安排。先走进第一个时间块，不必同时承担整整一天。”`
-                : "“今天还没有被写满。为重要的事留出位置，也为偶然发生的快乐保留空间。”"}
-          </blockquote>
-          <small>日常屿 · 根据今天的记录生成</small>
-        </section>
-      </aside>
-    </div>
-  );
-}
-
 function ScheduleView({
   today,
   schedules,
@@ -2776,6 +2698,7 @@ function ScheduleView({
   onRefresh,
   onAction,
   setNotice,
+  focusClockController,
 }: {
   today: Date;
   schedules: ScheduleEvent[];
@@ -2790,8 +2713,14 @@ function ScheduleView({
     payload: Record<string, unknown>,
   ) => Promise<{ id?: string }>;
   setNotice: (notice: string) => void;
+  focusClockController: FocusClockController;
 }) {
   const calendarFileRef = useRef<HTMLInputElement>(null);
+  const focusSession = focusClockController.session;
+  const focusNow = focusClockController.now;
+  const [completionItem, setCompletionItem] = useState<ScheduleEvent | null>(
+    null,
+  );
   const rangeOptions = [
     ["today", "今日"],
     ["three", "三日"],
@@ -2800,6 +2729,42 @@ function ScheduleView({
     ["semester", "学期"],
     ["actual", "实际时间轴"],
   ] as const;
+
+  function startFocus(item: ScheduleEvent) {
+    if (
+      focusSession &&
+      (focusSession.targetType !== "schedule" || focusSession.targetId !== item.id)
+    ) {
+      setNotice(`请先完成或放弃“${focusSession.title}”的专注计时。`);
+      return;
+    }
+    focusClockController.start({
+      targetType: "schedule",
+      targetId: item.id,
+      title: item.title,
+      mode: "stopwatch",
+      durationMinutes: item.plannedMinutes,
+    });
+    setNotice(`已开始“${item.title}”，切换页面或刷新后仍会继续计时。`);
+  }
+
+  function toggleFocus() {
+    if (!focusSession) return;
+    const wasRunning = focusSession.status === "running";
+    focusClockController.toggle();
+    setNotice(wasRunning ? "计时已暂停，暂停时间不会计入实际投入。" : "已经继续专注计时。");
+  }
+
+  function openCompletion(item: ScheduleEvent) {
+    if (
+      focusSession?.targetType === "schedule" &&
+      focusSession.targetId === item.id &&
+      focusSession.status === "running"
+    ) {
+      focusClockController.pause();
+    }
+    setCompletionItem(item);
+  }
 
   const start =
     range === "today"
@@ -2859,41 +2824,34 @@ function ScheduleView({
     return item && visibleDayKeys.has(dayKey(item.startAt));
   }).length;
 
-  async function complete(item: ScheduleEvent) {
+  async function complete(
+    item: ScheduleEvent,
+    values: {
+      actualMinutes: number;
+      actualStartAt: string;
+      actualEndAt: string;
+      reflection: string;
+      interruptionReason: string;
+    },
+  ) {
     try {
-      const actualInput = window.prompt(
-        `“${item.title}”实际投入了多少分钟？`,
-        String(item.plannedMinutes),
-      );
-      if (actualInput === null) return;
-      const reflection = window.prompt(
-        "写一句完成感受或课程反思（可留空）",
-        item.reflection || item.note,
-      );
-      const actualStartAt = window.prompt(
-        "实际开始时间（可直接确认）",
-        localDateTime(new Date(item.startAt)),
-      );
-      if (actualStartAt === null) return;
-      const actualEndAt = window.prompt(
-        "实际结束时间（可直接确认）",
-        localDateTime(new Date(item.endAt)),
-      );
-      if (actualEndAt === null) return;
-      const interruptionReason = window.prompt(
-        "如果被打断或未按计划完成，可填写原因（可留空）",
-        item.interruptionReason || "",
-      );
       await onAction("schedule.update", {
         id: item.id,
         status: "已完成",
-        actualMinutes: Math.max(0, Number(actualInput) || 0),
-        note: reflection || "",
-        actualStartAt: localDateTimeToIso(actualStartAt),
-        actualEndAt: localDateTimeToIso(actualEndAt),
-        interruptionReason: interruptionReason || "",
+        actualMinutes: values.actualMinutes,
+        note: values.reflection,
+        actualStartAt: localDateTimeToIso(values.actualStartAt),
+        actualEndAt: localDateTimeToIso(values.actualEndAt),
+        interruptionReason: values.interruptionReason,
         createLifeEvent: true,
       });
+      if (
+        focusSession?.targetType === "schedule" &&
+        focusSession.targetId === item.id
+      ) {
+        focusClockController.clear();
+      }
+      setCompletionItem(null);
       await onRefresh();
       setNotice("已记录实际投入，并生成完成记录。");
     } catch (error) {
@@ -2967,6 +2925,49 @@ function ScheduleView({
         </button>
       </div>
 
+      {focusSession?.targetType === "schedule" && (
+        <section className="focus-dock" aria-live="polite">
+          <div className="focus-dock-pulse">
+            {focusSession.status === "running" ? <Play size={16} /> : <Pause size={16} />}
+          </div>
+          <div className="focus-dock-copy">
+            <small>{focusSession.status === "running" ? "正在专注" : "计时已暂停"}</small>
+            <strong>{focusSession.title}</strong>
+          </div>
+          <time>{focusDisplay(focusSession, focusNow)}</time>
+          <button
+            onClick={toggleFocus}
+            aria-label={focusSession.status === "running" ? "暂停计时" : "继续计时"}
+          >
+            {focusSession.status === "running" ? <Pause size={15} /> : <Play size={15} />}
+            <span>{focusSession.status === "running" ? "暂停" : "继续"}</span>
+          </button>
+          <button
+            className="focus-finish"
+            onClick={() => {
+              const item = schedules.find(
+                (candidate) => candidate.id === focusSession.targetId,
+              );
+              if (item) openCompletion(item);
+            }}
+          >
+            <Check size={15} /> <span>完成</span>
+          </button>
+          <button
+            className="focus-abandon"
+            onClick={() => {
+              if (window.confirm("放弃本次计时？已经记录的专注时长不会写入日程。")) {
+                focusClockController.clear();
+                setNotice("本次专注计时已放弃，日程仍然保留。 ");
+              }
+            }}
+            aria-label="放弃本次计时"
+          >
+            <X size={15} />
+          </button>
+        </section>
+      )}
+
       <div className="schedule-toolbar">
         <div className="segmented-control">
           {rangeOptions.map(([id, label]) => (
@@ -3008,7 +3009,8 @@ function ScheduleView({
           today={today}
           schedules={schedules}
           events={events}
-          onComplete={complete}
+          onComplete={openCompletion}
+          onStartFocus={startFocus}
           onAdd={onAdd}
         />
       ) : (
@@ -3027,15 +3029,20 @@ function ScheduleView({
 
           <div className={`schedule-board range-${range}`}>
         {days.map((day) => {
+          const currentDayKey = dayKey(day);
           const daySchedules = schedules
-            .filter((item) => dayKey(item.startAt) === dayKey(day))
+            .filter((item) => dayKey(item.startAt) === currentDayKey)
             .sort(
               (a, b) =>
                 new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
             );
+          const isToday = currentDayKey === dayKey(new Date());
           return (
-            <div className="schedule-day" key={dayKey(day)}>
-              <header className={dayKey(day) === dayKey(new Date()) ? "today" : ""}>
+            <div
+              className={`schedule-day ${isToday ? "is-today" : ""}`}
+              key={currentDayKey}
+            >
+              <header className={isToday ? "today" : ""}>
                 <span>{new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(day)}</span>
                 <strong>{day.getDate()}</strong>
                 <small>{day.getMonth() + 1}月</small>
@@ -3083,9 +3090,23 @@ function ScheduleView({
                         </div>
                         <div className="schedule-event-actions">
                           {item.status !== "已完成" ? (
-                            <button onClick={() => complete(item)}>
-                              <Check size={13} /> 完成并反思
-                            </button>
+                            <>
+                              {(
+                                focusSession?.targetType !== "schedule" ||
+                                focusSession.targetId !== item.id
+                              ) && (
+                                <button
+                                  className="focus-start-action"
+                                  onClick={() => startFocus(item)}
+                                  disabled={Boolean(focusSession)}
+                                >
+                                  <Play size={13} /> 开始
+                                </button>
+                              )}
+                              <button onClick={() => openCompletion(item)}>
+                                <Check size={13} /> 完成
+                              </button>
+                            </>
                           ) : (
                             <span className="completed-label">
                               <Check size={13} /> 已完成
@@ -3122,6 +3143,21 @@ function ScheduleView({
           </div>
         </>
       )}
+
+      {completionItem && (
+        <ScheduleCompletionModal
+          item={completionItem}
+          focusSession={
+            focusSession?.targetType === "schedule" &&
+            focusSession.targetId === completionItem.id
+              ? focusSession
+              : null
+          }
+          now={focusNow}
+          onClose={() => setCompletionItem(null)}
+          onSubmit={(values) => complete(completionItem, values)}
+        />
+      )}
     </section>
   );
 }
@@ -3131,12 +3167,14 @@ function ThreeTrackTime({
   schedules,
   events,
   onComplete,
+  onStartFocus,
   onAdd,
 }: {
   today: Date;
   schedules: ScheduleEvent[];
   events: LifeEvent[];
-  onComplete: (item: ScheduleEvent) => Promise<void>;
+  onComplete: (item: ScheduleEvent) => void;
+  onStartFocus: (item: ScheduleEvent) => void;
   onAdd: () => void;
 }) {
   const todaySchedules = schedules
@@ -3249,9 +3287,14 @@ function ThreeTrackTime({
                     <time>{timeLabel(item.startAt)}</time>
                     <h3>{item.title}</h3>
                     <p>还没有记录实际投入</p>
-                    <button onClick={() => void onComplete(item)}>
-                      <Check size={13} /> 记录实际
-                    </button>
+                    <div className="actual-track-actions">
+                      <button onClick={() => onStartFocus(item)}>
+                        <Play size={13} /> 开始专注
+                      </button>
+                      <button onClick={() => onComplete(item)}>
+                        <Check size={13} /> 记录实际
+                      </button>
+                    </div>
                   </article>
                 ),
               )
@@ -3454,6 +3497,136 @@ function TimelineView({
         )}
       </div>
     </section>
+  );
+}
+
+function ScheduleCompletionModal({
+  item,
+  focusSession,
+  now,
+  onClose,
+  onSubmit,
+}: {
+  item: ScheduleEvent;
+  focusSession: FocusSession | null;
+  now: number;
+  onClose: () => void;
+  onSubmit: (values: {
+    actualMinutes: number;
+    actualStartAt: string;
+    actualEndAt: string;
+    reflection: string;
+    interruptionReason: string;
+  }) => Promise<void>;
+}) {
+  const trackedMinutes = focusSession
+    ? Math.max(1, Math.round(focusElapsedMs(focusSession, now) / 60000))
+    : item.actualMinutes || item.plannedMinutes;
+  const defaultStart = focusSession?.startedAt ?? item.actualStartAt ?? item.startAt;
+  const defaultEnd = focusSession ? new Date(now).toISOString() : item.actualEndAt ?? item.endAt;
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  return (
+    <Modal
+      title={`完成：${item.title}`}
+      description="确认实际投入与结果；保存后会生成一条可回溯的生活记录。"
+      onClose={onClose}
+    >
+      <form
+        className="schedule-completion-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const actualStartAt = String(form.get("actualStartAt") || "");
+          const actualEndAt = String(form.get("actualEndAt") || "");
+          if (new Date(actualEndAt).getTime() < new Date(actualStartAt).getTime()) {
+            setFormError("实际结束时间不能早于实际开始时间。");
+            return;
+          }
+          setFormError("");
+          setSaving(true);
+          try {
+            await onSubmit({
+              actualMinutes: Math.max(0, Number(form.get("actualMinutes")) || 0),
+              actualStartAt,
+              actualEndAt,
+              reflection: String(form.get("reflection") || ""),
+              interruptionReason: String(form.get("interruptionReason") || ""),
+            });
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {focusSession && (
+          <div className="completion-tracked-note">
+            <TimerReset size={18} />
+            <div>
+              <strong>已从专注计时带入 {trackedMinutes} 分钟</strong>
+              <span>按真实时间差计算，切换页面或进入后台不会让计时变慢。</span>
+            </div>
+          </div>
+        )}
+        <div className="completion-time-grid">
+          <label>
+            <span>实际开始</span>
+            <input
+              name="actualStartAt"
+              type="datetime-local"
+              defaultValue={localDateTime(new Date(defaultStart))}
+              required
+            />
+          </label>
+          <label>
+            <span>实际结束</span>
+            <input
+              name="actualEndAt"
+              type="datetime-local"
+              defaultValue={localDateTime(new Date(defaultEnd))}
+              required
+            />
+          </label>
+          <label className="wide">
+            <span>实际投入（分钟）</span>
+            <input
+              name="actualMinutes"
+              type="number"
+              min="0"
+              max="1440"
+              defaultValue={trackedMinutes}
+              required
+            />
+            <small>计划 {item.plannedMinutes} 分钟，可按真实情况修正。</small>
+          </label>
+        </div>
+        <label>
+          <span>完成结果与感受</span>
+          <textarea
+            name="reflection"
+            defaultValue={item.reflection || item.note}
+            placeholder="完成了什么？过程中的感受、课程反思或下一步是什么？"
+          />
+        </label>
+        <label>
+          <span>中断或偏差原因（可选）</span>
+          <input
+            name="interruptionReason"
+            defaultValue={item.interruptionReason || ""}
+            placeholder="例如：临时会议、低估难度、被消息打断"
+          />
+        </label>
+        {formError && <p className="completion-form-error" role="alert">{formError}</p>}
+        <div className="modal-actions completion-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>
+            取消
+          </button>
+          <button type="submit" className="primary-button" disabled={saving}>
+            <Check size={16} /> {saving ? "正在保存…" : "完成并写入实际"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
