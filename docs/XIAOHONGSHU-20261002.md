@@ -27,13 +27,20 @@ GitHub：me-fake-you/richangyu-life-workbench
 
 ## 已制作的配图
 
-- [竖版封面 SVG](../public/tutorial/showcase/media/cover.svg)：1080 × 1440，标题与虚构卡片示意。
-- [工作台概念图 SVG](../public/tutorial/showcase/media/overview.svg)：1500 × 900，不是真实账户截图。
-- [确认流程 SVG](../public/tutorial/showcase/media/capture.svg)：1500 × 900，展示预览和确认的区别。
+以下 PNG 可下载用于排版或发布；SVG 保留为可编辑源文件。
 
-这些图是可编辑矢量素材，不是实际最新界面的截图。发布平台若不接受 SVG，需要先导出 PNG/JPEG；本轮没有生成对应栅格图片，不把 SVG 说成可直接上传的截图。
 
-## 六张图的顺序建议
+- [竖版封面 PNG](../public/tutorial/showcase/media/cover.png) / [SVG](../public/tutorial/showcase/media/cover.svg)：1080 × 1440，标题与虚构卡片示意。
+- [工作台概念图 PNG](../public/tutorial/showcase/media/overview.png) / [SVG](../public/tutorial/showcase/media/overview.svg)：1500 × 900，不是真实账户截图。
+- [确认流程 PNG](../public/tutorial/showcase/media/capture.png) / [SVG](../public/tutorial/showcase/media/capture.svg)：1500 × 900，展示预览和确认的区别。
+
+已导出三张 PNG，并保留对应可编辑 SVG；这些图都是概念示意，不是实际最新界面的截图。横版图可作为补充，封面是适合手机展示的竖版。导出完成不等于已经发布帖子。
+
+## 配图发布方式
+
+可以先用已制作的三张 PNG 发一篇说明帖，不需要等六张图。正文已在上方提供，平台发布前核对图里的开发状态。
+
+## 扩展到六张图的顺序建议
 
 1. 使用竖版封面。
 2. 工作台概念示意，注明虚构数据。
@@ -42,7 +49,7 @@ GitHub：me-fake-you/richangyu-life-workbench
 5. 开源信息与当前限制，不夸大安卓或 AI 完成度。
 6. 问读者最需要哪项功能，邀请到 GitHub 反馈。
 
-第 3、5、6 张可以做文字排版；本轮只制作上述三张 SVG，不宣称六张图片全部制作完成。
+第 3、5、6 张可以做文字排版；本轮只制作上述三组 PNG / SVG，不宣称六张图片全部制作完成。
 
 ## 四十秒视频脚本
 

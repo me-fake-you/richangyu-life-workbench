@@ -36,3 +36,11 @@
 ## 合并规则
 
 保留草稿，等待依赖修复和完整检查通过。测试应先使用独立虚构数据。新失败项需要如实记录，不能以文档更新代替验证。
+
+## 本轮发布后新增的检查结果
+
+- [AI 分支 CI](https://github.com/me-fake-you/richangyu-life-workbench/actions/runs/37033703981) 仍显示失败，未达到合并条件。
+- [主分支 CI](https://github.com/me-fake-you/richangyu-life-workbench/actions/runs/37033701317) 在验证阶段失败。日志显示旧测试固定匹配 README 中的“三分钟产品讲解”“个人生活操作系统”“长期可靠性”等文案，本轮首页重写触发了兼容问题。这不是已确认的业务运行故障，但不能声称完整检查通过。
+- 主分支首页兼容问题由本轮改动引入，需要处理后重跑；不删除有效检查来掩盖失败。
+- [互动演示 Pages 发布](https://github.com/me-fake-you/richangyu-life-workbench/actions/runs/37033701241) 成功。这证明发布流程完成，不证明浏览器交互或业务流程全部通过。
+- 三张 PNG 已导出，并保留 SVG；尚未进行图片视觉验收，也没有在小红书发布帖子。
