@@ -6,6 +6,7 @@ export { applyCapture } from "./assistant-capture";
 
 type ConversationOptions = Parameters<typeof converseUnchecked>[0];
 type ConversationResult = Awaited<ReturnType<typeof converseUnchecked>>;
+type GuardedConversationResult = Omit<ConversationResult, "capture"> & { capture?: CapturePreview | null };
 type CalendarRequest = { day: string | null; prompt: string; source: string };
 
 const DAY = 86400000;
@@ -98,20 +99,20 @@ function previewMatchesDay(capture: CapturePreview, day: string): boolean {
   });
 }
 
-function previewResult(result: ConversationResult, capture: CapturePreview) {
+function previewResult(result: ConversationResult, capture: CapturePreview): GuardedConversationResult {
   const label = capture.kind === "schedule" ? "日程" : capture.kind === "life" ? "生活记录" : "兼职收入或待收款";
   return {
     ...result,
-    reply: `已整理成${label}预览，尚未保存。请核对下面的内容，点击“确认添加到工作台”后才会写入。`,
+    answer: `已整理成${label}预览，尚未保存。请核对下面的内容，点击“确认添加到工作台”后才会写入。`,
     capture: { ...capture, title: `${label}预览，确认后才保存` },
   };
 }
 
-function blockedDate(result: ConversationResult, options: ConversationOptions, day: string) {
+function blockedDate(result: ConversationResult, options: ConversationOptions, day: string): GuardedConversationResult {
   return {
     ...result, capture: null,
     pendingSource: [options.source, options.question].filter(Boolean).join("\n").slice(-1200),
-    reply: `你说的是${readableDay(day)}，但刚才生成的日期不一致，已拦截，没有保存任何记录。请确认这个日期，并补充开始和结束时间；如果只是记下已完成的事，也可以告诉我。`,
+    answer: `你说的是${readableDay(day)}，但刚才生成的日期不一致，已拦截，没有保存任何记录。请确认这个日期，并补充开始和结束时间；如果只是记下已完成的事，也可以告诉我。`,
   };
 }
 

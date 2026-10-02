@@ -191,7 +191,7 @@ export function WorkbenchAssistant() {
             {messages.map((message, index) => <article className={`wa-message ${message.role}`} key={index}><span>{message.role === "user" ? "你" : "日常助手"}</span>{message.role === "assistant" ? <MarkdownContent content={message.text} /> : <p>{message.text}</p>}</article>)}
             <div ref={chatEnd} />
           </div>}
-          {mode === "chat" && capture && <ChatCaptureCard capture={capture} busy={Boolean(busy)} saved={captureSaved} allowFinancial={allowFinancial} onConfirm={() => void confirmCapture()} onDiscard={() => { setCapture(null); setCaptureSaved(false); setCaptureSource(""); setError(""); }} onEdit={() => { setPrompt(""); input.current?.focus(); }} />}
+          {mode === "chat" && capture && <ChatCaptureCard capture={captureSaved ? { ...capture, title: "已保存到工作台" } : capture} busy={Boolean(busy)} saved={captureSaved} allowFinancial={allowFinancial} onConfirm={() => void confirmCapture()} onDiscard={() => { setCapture(null); setCaptureSaved(false); setCaptureSource(""); setError(""); }} onEdit={() => { setPrompt(""); input.current?.focus(); }} />}
           {mode === "plan" && !preview && <div className="wa-empty"><CalendarDays size={30} /><h3>先看草稿，再写进日程</h3><p>告诉我目标、可用时间与需要休息的间隔。最多安排 8 项，所有时间按北京时间显示。</p></div>}
           {mode === "plan" && preview && <section className="wa-preview" aria-labelledby="wa-preview-title">
             <header><h3 id="wa-preview-title">{saved ? "已保存到工作台" : "计划草稿，尚未保存"}</h3><span>{preview.operations.length} 项</span></header>
