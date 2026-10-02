@@ -2,13 +2,13 @@
 
 **把想做的事安排好，把做过的事留下来。**
 
-一个隐私优先、可以自行部署的个人生活工作台，连接日程、生活记录与兼职管理。AI 的职责是整理建议，不是在你没有确认时擅自修改数据。
+一个隐私优先、可以自行部署的个人生活工作台，也是一种“个人生活操作系统”：连接日程、生活记录与兼职管理。AI 的职责是整理建议，不是在你没有确认时擅自修改数据。
 
 ![日常屿产品示意：虚构数据，非真实账户截图](public/tutorial/showcase/media/overview.svg)
 
-[产品讲解](docs/PROJECT-GUIDE-20261002.md) · [虚构数据互动演示](https://me-fake-you.github.io/richangyu-life-workbench/showcase/) · [开始使用](docs/QUICKSTART.md) · [English](README.en.md)
+[产品讲解](docs/PROJECT-GUIDE-20261002.md) · [安卓下载状态](https://me-fake-you.github.io/richangyu-life-workbench/download/) · [虚构数据互动演示](https://me-fake-you.github.io/richangyu-life-workbench/showcase/) · [开始使用](docs/QUICKSTART.md) · [English](README.en.md)
 
-> **2026-10-03 状态说明**：本轮重做公开介绍并同步线上 AI 修复。AI 源码仍在 [PR #7](https://github.com/me-fake-you/richangyu-life-workbench/pull/7)，没有合并到主分支。该分支的上一次安装检查失败，完整检查尚未通过。不是新 APK，也不是应用商店发布。
+> **2026-10-03 状态说明**：本轮重做公开介绍并同步线上 AI 修复。AI 源码仍在 [PR #7](https://github.com/me-fake-you/richangyu-life-workbench/pull/7)，没有合并到主分支。该分支正在修复依赖锁定和发布检查，完整检查尚未通过。安卓 v1.8.1 个人预览包已在本地构建成功，但尚未完成真机安装、登录、同步验证，也不是应用商店发布。
 
 ## 它能帮你做什么
 
@@ -24,7 +24,7 @@
 ## 看一看，再决定要不要用
 
 - [互动演示](https://me-fake-you.github.io/richangyu-life-workbench/showcase/)：三个固定例子，可以切换页面、预览、确认和取消。数据全是虚构的，保存在当前页面内存，刷新即重置；不调用真实 AI。
-- [三分钟讲解页](https://me-fake-you.github.io/richangyu-life-workbench/)：保留原有讲解资源。
+- [三分钟产品讲解](https://me-fake-you.github.io/richangyu-life-workbench/)：保留原有讲解资源。
 - [使用指南](docs/usage-guide.md)：日常操作说明。
 - [小红书文案与配图](docs/XIAOHONGSHU-20261002.md)：说明项目、使用场景和真实发布状态。
 
@@ -58,13 +58,19 @@
 
 ![AI 确认流程示意，虚构内容](public/tutorial/showcase/media/capture.svg)
 
+## 功能成熟度与长期可靠性
+
+基础网页 / PWA、开发中的 AI 升级、安卓个人预览包是不同的交付物，不能用其中一项通过来证明其他项可用。长期可靠性包括身份校验、数据恢复、弱网错误和明确的保存结果；这些都需要独立验证。详见[验证记录](docs/VERIFICATION-20261003.md)及[本轮发布检查](docs/RELEASE-CHECKS-20261003.md)。
+
 ## 手机版和安卓版，是两件事
 
-**现在的可用形态是网页 / PWA。** 在手机浏览器中添加到主屏幕不等于原生安卓 App。
+网页 / PWA 可以在手机浏览器中添加到主屏幕，但不等于原生安卓 App。
 
-安卓工程和相关发布流程还需继续完成安装、应用内登录、返回导航、弱网体验以及签名发布验证。本轮没有制作新的 APK / AAB，也没有上架应用商店。不要用旧下载文件作为“本轮正式安装包”宣传。
+安卓 v1.8.1 个人预览包已本地构建成功，打卡、记录、日程采用应用内界面，网页登录只用于授权。预览包与旧应用分开安装。**它仍绑定作者的私人工作台，不是其他人下载后就能直接使用的通用注册版。** 公开演示不连接该私人工作台。
 
-网页变更是否出现在移动端，取决于该客户端加载的是线上网页还是打包内置页面；原生代码和权限变化通常仍需要更新安装包，不能一概承诺自动同步。
+尚未完成真机安装、登录、同步与弱网验证，没有商店正式版。私人绑定安装包目前不自动公开；[下载状态页](https://me-fake-you.github.io/richangyu-life-workbench/download/)只在存在对应公开预览 Release 时提供安装包，否则明确显示暂无公开包。不要用旧文件作为新版下载宣传。
+
+[安卓安装与发布说明](docs/ANDROID-DOWNLOAD.md)说明适用账户、文件后缀、预览版限制和发布条件。网页服务更新不等于原生代码自动更新；原生代码、权限或安装包内容改变通常需要新 APK。
 
 ## 开发与部署
 

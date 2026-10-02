@@ -2,7 +2,7 @@
 
 **Make room for what comes next. Keep a trace of what happened.**
 
-A privacy-minded, self-hostable personal workbench for schedules, life notes and side-job tracking. AI prepares a preview; you decide whether to save it.
+A privacy-minded, self-hostable personal life operating system and workbench for schedules, life notes and side-job tracking. AI prepares a preview; you decide whether to save it.
 
 ![Concept illustration using fictional data](public/tutorial/showcase/media/overview.svg)
 
@@ -13,7 +13,7 @@ A privacy-minded, self-hostable personal workbench for schedules, life notes and
 - The existing web/PWA source is on the default branch.
 - The AI upgrade and deployed follow-up fixes are in [draft PR #7](https://github.com/me-fake-you/richangyu-life-workbench/pull/7), not merged into main.
 - The last CI run failed during dependency installation because the manifest and lockfile were out of sync. Full validation has not passed.
-- No new APK/AAB was produced in this round. A PWA is not a native Android release.
+- A personal Android v1.8.1 development preview was built locally. Installation, login and synchronization have not been verified on a real device. There is no store release or public APK Release yet; a PWA is not a native Android app.
 - The public demo uses fixed fictional examples, has no model connection, and keeps changes only in page memory. Reloading resets it.
 
 ## Intent before action
@@ -24,6 +24,9 @@ Groq free-tier usage has limits; it is not an unlimited or permanent guarantee. 
 
 ## Documentation
 
+- [Android download status](https://me-fake-you.github.io/richangyu-life-workbench/download/)
+- [Android installation and release scope](docs/ANDROID-DOWNLOAD.md)
+- [Release checks](docs/RELEASE-CHECKS-20261003.md)
 - [Product guide](docs/PROJECT-GUIDE-20261002.md)
 - [Quick start](docs/QUICKSTART.md)
 - [Cloudflare deployment](docs/deployment-cloudflare.md)

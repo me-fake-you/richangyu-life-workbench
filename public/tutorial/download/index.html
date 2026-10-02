@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
+<title>日常屿 · 安卓下载与发布状态</title>
+<meta name="description" content="日常屿安卓公开预览版的下载状态、安装说明与真实验收范围。未公开安装包时明确显示未发布。">
+<style>
+:root{--paper:#f5f1e6;--ink:#213e33;--green:#285843;--muted:#617167;--line:#cfd7c8;--white:#fffdf7;--sand:#ebe1cc}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:radial-gradient(ellipse at 85% 0%,#dee8d5 0%,transparent 42%),linear-gradient(135deg,var(--paper),#faf6ed);font-family:"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,serif;line-height:1.75}a{color:var(--green);text-underline-offset:4px}a:focus-visible,button:focus-visible{outline:3px solid #c28c42;outline-offset:5px}.wrap{max-width:1060px;margin:auto;padding:26px 28px 52px}nav{display:flex;justify-content:space-between;align-items:center;gap:20px;border-bottom:1px solid var(--line);padding-bottom:20px}.brand{font-size:20px;letter-spacing:3px;text-decoration:none;font-weight:700}.navlinks{display:flex;gap:20px;font-size:14px}.eyebrow{font:12px/1.5 Georgia,serif;letter-spacing:3px;color:var(--muted);margin:0 0 16px}.hero{padding:65px 0 40px;display:grid;grid-template-columns:1.1fr .9fr;gap:50px;align-items:start}h1{font-size:clamp(35px,5vw,62px);line-height:1.25;letter-spacing:-1px;margin:0 0 22px}h2{font-size:24px;line-height:1.35;margin:0 0 14px}p{margin:0 0 15px}.lead{font-size:17px;max-width:520px}.card{background:var(--white);border:1px solid var(--line);padding:30px;border-radius:6px;box-shadow:12px 12px 0 #e4e6d8}.tag{display:inline-block;border:1px solid var(--line);border-radius:2px;padding:4px 10px;color:var(--green);font-size:12px;margin-bottom:18px}.status{font-size:25px;font-weight:700;margin-bottom:10px}.muted{color:var(--muted);font-size:14px}.buttons{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}.button{display:inline-block;background:var(--green);border:1px solid var(--green);color:var(--white);text-decoration:none;border-radius:3px;padding:12px 19px;font-size:15px;font-family:inherit;cursor:pointer}.button.secondary{background:transparent;color:var(--green)}.button[aria-disabled="true"]{opacity:.5;pointer-events:none}.notice{border-left:3px solid #b88c45;background:#ede5d5;padding:17px 22px;font-size:14px;margin:10px 0 35px}.facts{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:38px}.fact{padding:24px 22px}.fact+.fact{border-left:1px solid var(--line)}.fact strong{display:block;font-size:18px;margin-bottom:8px}.steps{display:grid;grid-template-columns:1fr 1fr;gap:40px}.step{border-top:1px solid var(--line);padding-top:18px}.number{font:italic 24px Georgia,serif;color:#8c9a83;margin-right:10px}footer{margin-top:45px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}code{overflow-wrap:anywhere;font-family:Consolas,monospace}.check{display:flex;gap:9px;align-items:start;font-size:13px;margin-top:16px}.check input{margin-top:6px;accent-color:var(--green)}[hidden]{display:none!important}@media(max-width:700px){.wrap{padding:20px 20px 35px}.hero{grid-template-columns:1fr;padding-top:38px;gap:28px}.navlinks{gap:13px}.brand{font-size:18px}.card{padding:24px;box-shadow:7px 7px 0 #e4e6d8}.facts{grid-template-columns:1fr}.fact{padding:18px 8px}.fact+.fact{border-left:0;border-top:1px solid var(--line)}.steps{grid-template-columns:1fr;gap:25px}nav{align-items:flex-start}.navlinks{flex-wrap:wrap;justify-content:flex-end}.lead{font-size:16px}}
+</style>
+</head>
+<body><div class="wrap">
+<nav aria-label="主导航"><a class="brand" href="../showcase/">日常屿</a><div class="navlinks"><a href="../showcase/">虚构数据演示</a><a href="https://github.com/me-fake-you/richangyu-life-workbench">开源项目</a></div></nav>
+<main>
+<section class="hero"><div><p class="eyebrow">RICHANGYU / ANDROID PREVIEW</p><h1>把生活收好，<br>也把发布说清楚。</h1><p class="lead">这里是安卓公开预览包的下载状态入口。它与网页演示、个人工作台和应用商店正式版，是四件不同的事。</p><p class="muted">本地个人预览包 v1.8.1 已构建，真机安装、登录、同步尚未验收。个人绑定包不会因这个页面公开而自动公开。</p></div>
+<div class="card" aria-live="polite"><span class="tag" id="badge">公开下载状态</span><p class="status" id="status">暂无公开安装包</p><p class="muted" id="detail">正在查询本仓库公开的安卓预览 Release。只有存在对应安装包时，才会显示 APK 下载入口。</p><p class="muted" id="assetMeta" hidden></p><label class="check" id="acknowledgement" hidden><input type="checkbox" id="ack"><span>我理解这是未上架、尚未完成真机验收的预览版，且需要对应工作台的访问授权。</span></label><div class="buttons"><a class="button" id="apk" hidden aria-disabled="true">下载预览 APK</a><a class="button secondary" href="https://github.com/me-fake-you/richangyu-life-workbench/releases">查看 GitHub 发布页</a></div><p class="muted" style="margin:18px 0 0"><a href="https://github.com/me-fake-you/richangyu-life-workbench/blob/main/docs/ANDROID-DOWNLOAD.md">安装与发布说明</a></p></div></section>
+<aside class="notice">当前个人预览包只连接作者的私人工作台，不是所有人下载即可注册的通用版。公开展示使用虚构数据，不会开放私人记录、账号或账目。</aside>
+<section class="facts" aria-label="版本边界"><div class="fact"><strong>公开演示</strong><span class="muted">无需连接私人工作台。固定虚构例子，不调用真实 AI，刷新即重置。</span></div><div class="fact"><strong>安卓预览</strong><span class="muted">本地构建已完成，不等于真机功能全部通过，也不等于已公开下载。</span></div><div class="fact"><strong>应用商店</strong><span class="muted">目前未上架。正式签名、隐私说明、真机验收与商店审核仍需完成。</span></div></section>
+<h2>拿到安装包之后</h2><section class="steps"><div class="step"><p><span class="number">01</span><strong>先确认文件与来源</strong></p><p class="muted">只安装可信来源的包。文件必须以 <code>.apk</code> 结尾，不能是 <code>.apk.1</code>。系统提示的安装权限仅授予当前可信来源，无需关闭安全防护。</p></div><div class="step"><p><span class="number">02</span><strong>再确认登录和同步</strong></p><p class="muted">使用获授权的工作台账户。先确认登录返回 App 和只读列表同步，不要拿真实账目测试写入，也不要绕过授权限制。</p></div></section>
+</main><footer>更新于 2026-10-03 · 没有账号收集、私人工作台请求或自动安装。下载状态只读取 GitHub 公开 Release 元数据。<br><a href="https://github.com/me-fake-you/richangyu-life-workbench/blob/main/docs/RELEASE-CHECKS-20261003.md">查看发布检查范围</a></footer>
+</div>
+<script>
+(function(){
+"use strict";
+const repo="me-fake-you/richangyu-life-workbench";
+const status=document.getElementById("status"), detail=document.getElementById("detail"), badge=document.getElementById("badge"), apk=document.getElementById("apk"), ack=document.getElementById("ack");
+const trusted=url=>{try{const u=new URL(url);return u.protocol==="https:"&&u.hostname==="github.com"&&!u.username&&!u.password&&!u.port&&u.pathname.startsWith("/"+repo+"/releases/download/")}catch{return false}};
+const preview=tag=>{const m=/^android-v(\d+)\.(\d+)\.(\d+)-preview(?:\.\d+)?$/.exec(tag||"");if(!m)return false;const v=m.slice(1).map(Number);return v[0]>1||(v[0]===1&&(v[1]>8||(v[1]===8&&v[2]>=1)))};
+const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+fetch("https://api.github.com/repos/"+repo+"/releases?per_page=10",{headers:{"Accept":"application/vnd.github+json"},cache:"no-store",signal:controller.signal})
+.then(response=>{if(!response.ok)throw new Error("query");return response.json()})
+.then(releases=>{
+ if(!Array.isArray(releases))throw new Error("format");
+ let selected=null;
+ for(const release of releases){if(release.draft||!release.prerelease||!preview(release.tag_name)||!Array.isArray(release.assets))continue;const asset=release.assets.find(a=>/^life-workbench-[A-Za-z0-9._-]+\.apk$/.test(a.name||"")&&a.state==="uploaded"&&a.size>0&&trusted(a.browser_download_url));if(asset){selected={release,asset};break}}
+ if(!selected){status.textContent="暂无公开安装包";detail.textContent="本仓库还没有符合公开预览版本规则的 APK。可以先体验虚构数据演示；本地个人包不等于公开可下载版本。";return}
+ const {release,asset}=selected;
+ badge.textContent="公开预览 · 非商店正式版";status.textContent=release.tag_name;detail.textContent="已找到公开预览安装包。发布文件不等于真机验收通过，请先阅读安装范围和授权限制。";
+ const meta=document.getElementById("assetMeta");meta.hidden=false;meta.textContent=asset.name+" · "+(asset.size/1024/1024).toFixed(1)+" MB";
+ apk.href=asset.browser_download_url;apk.hidden=false;document.getElementById("acknowledgement").hidden=false;ack.addEventListener("change",()=>apk.setAttribute("aria-disabled",String(!ack.checked)));apk.addEventListener("click",event=>{if(!ack.checked)event.preventDefault()});
+})
+.catch(()=>{status.textContent="暂时无法查询发布状态";detail.textContent="可能是网络或 GitHub 查询额度问题。这不代表已有安装包，请前往 GitHub 发布页核对。"})
+.finally(()=>clearTimeout(timer));
+})();
+</script></body></html>
