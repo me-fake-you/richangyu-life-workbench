@@ -1,5 +1,14 @@
 # 日常屿 · 生活工作台
 
+## 2026-10-02 项目讲解与开发进度
+
+- [新版中文项目讲解、AI 使用边界与升级路线](./docs/PROJECT-GUIDE-20261002.md)
+- [小红书文案、配图与短视频拍摄方案](./docs/XIAOHONGSHU-20261002.md)
+- [AI 升级草稿 PR #7](https://github.com/me-fake-you/richangyu-life-workbench/pull/7)：尚未合并；后续线上修复不自动等于公开分支已经同步。
+
+本轮更新的是公开文档，不是新的 APK 或商店发布。主分支的既有版本说明见下文；手机形态仍应区分 PWA 与原生安卓。个人线上工作台及其数据保持私有。
+
+
 [English](./README.en.md) · [三分钟产品讲解](#三分钟产品讲解) · [图文使用指南](./docs/usage-guide.md) · [本地运行](#本地运行) · [独立部署](./docs/deployment-cloudflare.md) · [参与贡献](./CONTRIBUTING.md)
 
 [![Version](https://img.shields.io/badge/version-1.5.0-76508a)](./CHANGELOG.md)
