@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type SearchType =
   | "event"
+  | "task"
   | "schedule"
   | "inbox"
   | "table"
@@ -82,6 +83,7 @@ type SavedSearch = {
 
 const typeOptions: Array<{ id: SearchType; label: string }> = [
   { id: "event", label: "生活记录" },
+  { id: "task", label: "任务" },
   { id: "schedule", label: "时间表" },
   { id: "inbox", label: "收件箱" },
   { id: "table", label: "表格" },

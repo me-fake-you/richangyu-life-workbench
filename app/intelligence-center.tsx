@@ -24,7 +24,7 @@ import {
   Target,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   emptyIntelligenceData,
   intelligenceAction,
@@ -77,6 +77,8 @@ function FeedArtwork({
 }
 
 const newsCategories = [
+  "国内",
+  "国际",
   "国内重要新闻",
   "国际热点",
   "财经与银行",
@@ -117,6 +119,37 @@ function dateLabel(value: string | null) {
       });
 }
 
+function conciseFeedSummary(item: FeedItem, max = 240) {
+  const summary = item.summary.replace(/\s+/g, " ").trim();
+  if (summary) {
+    return summary.length > max ? `${summary.slice(0, max)}…` : summary;
+  }
+  return `${item.sourceName || "该来源"}发布了“${item.title}”。原始页面暂未提供可提取摘要，请打开原文核对详细内容。`;
+}
+
+function feedPublishedTime(item: FeedItem) {
+  const value = item.publishedAt || item.createdAt;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function beijingDayKey(value: Date | number) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function isTodayNews(item: FeedItem, todayKey: string) {
+  const time = feedPublishedTime(item);
+  return Boolean(todayKey) && time > 0 && beijingDayKey(time) === todayKey;
+}
+
 export function IntelligenceCenter({
   onNotice,
   onWorkspaceReload,
@@ -134,6 +167,9 @@ export function IntelligenceCenter({
   const [dailyLimit, setDailyLimit] = useState(10);
   const [hideRead, setHideRead] = useState(false);
   const [officialFirst, setOfficialFirst] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [todayKey, setTodayKey] = useState("");
+  const autoRefreshAttempted = useRef(false);
 
   async function load() {
     setLoading(true);
@@ -157,6 +193,22 @@ export function IntelligenceCenter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      autoRefreshAttempted.current = false;
+      void load();
+    }, 5 * 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const updateToday = () => setTodayKey(beijingDayKey(new Date()));
+    updateToday();
+    const timer = window.setInterval(updateToday, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   async function run(
     action: string,
     payload: Record<string, unknown>,
@@ -176,11 +228,79 @@ export function IntelligenceCenter({
     }
   }
 
+  async function syncPeopleDaily() {
+    setBusy("people.sync");
+    try {
+      const sourceIds = data.sources
+        .filter(
+          (source) =>
+            source.id === "default-cn-people-daily" ||
+            source.id === "default-cn-people-society",
+        )
+        .map((source) => source.id);
+      for (const id of sourceIds.length
+        ? sourceIds
+        : ["default-cn-people-daily", "default-cn-people-society"]) {
+        await intelligenceAction("source.check", { id });
+      }
+      await load();
+      onNotice("人民日报时政与社会热点已经同步。");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "人民日报同步失败。");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  useEffect(() => {
+    if (
+      loading ||
+      autoRefreshAttempted.current ||
+      (!data.freshness.syncStale && !data.freshness.contentStale)
+    ) {
+      return;
+    }
+    autoRefreshAttempted.current = true;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setBusy("daily.auto");
+        try {
+          const result = (await intelligenceAction("daily.refreshIfStale", {
+            timezoneOffset: new Date().getTimezoneOffset(),
+          })) as { refreshed?: boolean };
+          await load();
+          if (result.refreshed) {
+            onNotice("国内外热点已完成实时补更。");
+          }
+        } catch (error) {
+          onNotice(
+            error instanceof Error
+              ? error.message
+              : "自动更新失败，可以点击“更新今日热点”重试。",
+          );
+        } finally {
+          setBusy("");
+        }
+      })();
+    }, 80);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    data.freshness.contentStale,
+    data.freshness.syncStale,
+    loading,
+  ]);
+
   const visibleFeed = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return [...data.feedItems]
       .filter((item) => category === "全部" || item.category === category)
       .filter((item) => !hideRead || item.readStatus !== "已读")
+      .filter(
+        (item) =>
+          showHistory ||
+          isTodayNews(item, todayKey),
+      )
       .filter(
         (item) =>
           !needle ||
@@ -196,22 +316,68 @@ export function IntelligenceCenter({
             .includes(needle),
       )
       .sort((a, b) => {
+        const timeDelta = feedPublishedTime(b) - feedPublishedTime(a);
+        if (Math.abs(timeDelta) > 12 * 60 * 60 * 1000) {
+          return timeDelta;
+        }
         if (officialFirst && a.officialConfirmed !== b.officialConfirmed) {
           return a.officialConfirmed ? -1 : 1;
         }
-        return (
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
+        return timeDelta;
       });
-  }, [category, data.feedItems, hideRead, officialFirst, query]);
+  }, [
+    category,
+    data.feedItems,
+    hideRead,
+    officialFirst,
+    query,
+    showHistory,
+    todayKey,
+  ]);
 
-  const todaysBrief = visibleFeed.slice(0, dailyLimit);
+  const todaysBrief = visibleFeed
+    .filter((item) => isTodayNews(item, todayKey))
+    .slice(0, dailyLimit);
   const latestDailyBrief = data.briefs.find(
-    (brief) => brief.kind === "情报日报",
+    (brief) =>
+      brief.kind === "情报日报" &&
+      beijingDayKey(new Date(brief.periodStart)) === todayKey,
   );
   const relevantPapers = [...data.papers].sort(
     (a, b) => b.relevance - a.relevance,
   );
+  const sourceCoverage = [
+    {
+      kind: "国内",
+      label: "国内权威来源",
+      description: "人民日报 / 人民网、新华社、央视与政府公开发布",
+      sources: data.sources.filter((source) => source.kind === "国内"),
+    },
+    {
+      kind: "国际",
+      label: "国际热点来源",
+      description: "联合国、BBC、NPR 与 The Guardian 等公开来源",
+      sources: data.sources.filter((source) => source.kind === "国际"),
+    },
+  ];
+  const peopleDailyItems = [...data.feedItems]
+    .filter(
+      (item) =>
+        item.sourceId === "default-cn-people-daily" ||
+        item.sourceId === "default-cn-people-society" ||
+        item.sourceName.includes("人民日报") ||
+        item.sourceName.includes("人民网"),
+    )
+    .sort(
+      (a, b) =>
+        feedPublishedTime(b) - feedPublishedTime(a),
+    )
+    .filter(
+      (item) =>
+        showHistory ||
+        isTodayNews(item, todayKey),
+    )
+    .slice(0, 3);
 
   if (loading) {
     return (
@@ -293,6 +459,76 @@ export function IntelligenceCenter({
 
       {(tab === "brief" || tab === "news") && (
         <>
+          <section className="news-source-coverage" aria-label="国内外新闻来源覆盖">
+            {sourceCoverage.map((group) => {
+              const healthy = group.sources.filter(
+                (source) => !source.health?.consecutiveFailures,
+              ).length;
+              return (
+                <article key={group.kind}>
+                  <header>
+                    <div>
+                      <small>{group.kind === "国内" ? "CHINA" : "WORLD"}</small>
+                      <strong>{group.label}</strong>
+                    </div>
+                    <span>{group.sources.length} 个来源</span>
+                  </header>
+                  <p>{group.description}</p>
+                  <footer>
+                    <span>{healthy} 个可用或等待首次检查</span>
+                    <button onClick={() => setCategory(group.kind)}>
+                      只看{group.kind}
+                    </button>
+                  </footer>
+                </article>
+              );
+            })}
+            <aside>
+              <ShieldCheck size={18} />
+              <p>
+                同一事件优先查看官方原文，再用不同国家和机构的报道交叉核对。
+                AI 只整理摘要，不替代来源。
+              </p>
+            </aside>
+          </section>
+
+          <section
+            className={`news-freshness-status ${
+              data.freshness.syncStale || data.freshness.contentStale
+                ? "is-stale"
+                : "is-fresh"
+            }`}
+          >
+            <span>
+              <RefreshCw
+                className={busy === "daily.auto" ? "spin" : ""}
+                size={17}
+              />
+            </span>
+            <div>
+              <strong>
+                {busy === "daily.auto"
+                  ? "正在自动补更国内外热点…"
+                  : data.freshness.contentStale
+                    ? "今天暂时还没有新条目"
+                    : `今日热点已同步 ${data.freshness.todayPublishedCount} 条`}
+              </strong>
+              <p>
+                北京时间当天新闻全天每 15 分钟自动检查；打开中的页面每 5 分钟读取最新结果，发现新条目才更新今日简报。
+              </p>
+            </div>
+            <dl>
+              <div>
+                <dt>最近同步</dt>
+                <dd>{dateLabel(data.freshness.lastSuccessfulSyncAt)}</dd>
+              </div>
+              <div>
+                <dt>最新发布</dt>
+                <dd>{dateLabel(data.freshness.freshestPublishedAt)}</dd>
+              </div>
+            </dl>
+          </section>
+
           <section className="intelligence-toolbar">
             <label className="intelligence-search">
               <Search size={15} />
@@ -346,6 +582,14 @@ export function IntelligenceCenter({
               />
               隐藏已读
             </label>
+            <label className="toolbar-check">
+              <input
+                type="checkbox"
+                checked={showHistory}
+                onChange={(event) => setShowHistory(event.target.checked)}
+              />
+              显示今天以前的新闻
+            </label>
             <button
               className="intelligence-refresh-button"
               onClick={() =>
@@ -392,6 +636,18 @@ export function IntelligenceCenter({
             </article>
           )}
 
+          {tab === "brief" && !latestDailyBrief && (
+            <div className="daily-brief-empty">
+              <Clock3 size={20} />
+              <div>
+                <strong>今天的简报还没有生成</strong>
+                <p>
+                  系统不会把昨天或更早的简报冒充成今日内容。点击“更新今日热点”可立即重新同步。
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="reading-mode-switch">
             <span>阅读方式</span>
             {[
@@ -410,78 +666,139 @@ export function IntelligenceCenter({
           </div>
 
           {tab === "news" && (
-            <details className="intelligence-capture" open={!data.feedItems.length}>
-              <summary><Plus size={15} /> 保存新闻、公告或网页</summary>
-              <form
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  const form = event.currentTarget;
-                  await run(
-                    "feed.importUrl",
-                    Object.fromEntries(new FormData(form).entries()),
-                    "网页已经进入信息收件箱。",
-                  );
-                  form.reset();
-                }}
-              >
-                <label className="wide">
-                  <span>网页地址</span>
-                  <input
-                    name="url"
-                    type="url"
-                    placeholder="https:// 官方新闻、论文、公告或网页"
-                    required
-                  />
-                </label>
-                <label>
-                  <span>类型</span>
-                  <select name="kind">
-                    <option>新闻</option>
-                    <option>公告</option>
-                    <option>网页</option>
-                    <option>项目更新</option>
-                  </select>
-                </label>
-                <label>
-                  <span>分类</span>
-                  <select name="category">
-                    {newsCategories.map((item) => (
-                      <option key={item}>{item}</option>
+            <>
+              <section className="people-daily-channel">
+                <header>
+                  <div>
+                    <span>中央媒体官方</span>
+                    <h2>人民日报热点</h2>
+                    <p>
+                      直接同步人民网时政与社会频道；每条新闻保留原文、配图和简要总结。
+                    </p>
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => void syncPeopleDaily()}
+                      disabled={busy === "people.sync"}
+                    >
+                      <RefreshCw
+                        className={busy === "people.sync" ? "spin" : ""}
+                        size={14}
+                      />
+                      {busy === "people.sync" ? "正在同步…" : "同步人民日报"}
+                    </button>
+                    <a
+                      href="https://www.people.com.cn/"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      人民网原站 <ExternalLink size={12} />
+                    </a>
+                  </div>
+                </header>
+                {peopleDailyItems.length ? (
+                  <div className="people-daily-grid">
+                    {peopleDailyItems.map((item) => (
+                      <article key={item.id}>
+                        <FeedArtwork item={item} compact />
+                        <div>
+                          <small>{item.sourceName}</small>
+                          <h3>{item.title}</h3>
+                          <p>{conciseFeedSummary(item, 150)}</p>
+                          <a
+                            href={item.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            阅读原文 <ExternalLink size={11} />
+                          </a>
+                        </div>
+                      </article>
                     ))}
-                  </select>
-                </label>
-                <label>
-                  <span>阅读状态</span>
-                  <select name="readStatus" defaultValue="稍后读">
-                    <option>未读</option>
-                    <option>稍后读</option>
-                    <option>已读</option>
-                  </select>
-                </label>
-                <label>
-                  <span>相关主题</span>
-                  <input name="topics" placeholder="银行秋招，AI，网络安全" />
-                </label>
-                <label className="wide">
-                  <span>为什么值得看</span>
-                  <input
-                    name="importance"
-                    placeholder="它可能影响你的研究、求职或近期行动"
-                  />
-                </label>
-                <button
-                  className="primary-button"
-                  disabled={busy === "feed.importUrl"}
+                  </div>
+                ) : (
+                  <div className="people-daily-empty">
+                    <Globe2 size={20} />
+                    <p>
+                      人民日报来源已经配置。点击“同步人民日报”后，最新条目会直接显示在这里。
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              <details className="intelligence-capture" open={!data.feedItems.length}>
+                <summary><Plus size={15} /> 保存新闻、公告或网页</summary>
+                <form
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    const form = event.currentTarget;
+                    await run(
+                      "feed.importUrl",
+                      Object.fromEntries(new FormData(form).entries()),
+                      "网页已经进入信息收件箱。",
+                    );
+                    form.reset();
+                  }}
                 >
-                  {busy === "feed.importUrl" ? (
-                    <LoaderCircle className="spin" size={15} />
-                  ) : (
-                    <FileSearch size={15} />
-                  )}
-                  读取并保存
-                </button>
-              </form>
-            </details>
+                  <label className="wide">
+                    <span>网页地址</span>
+                    <input
+                      name="url"
+                      type="url"
+                      placeholder="https:// 官方新闻、论文、公告或网页"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>类型</span>
+                    <select name="kind">
+                      <option>新闻</option>
+                      <option>公告</option>
+                      <option>网页</option>
+                      <option>项目更新</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>分类</span>
+                    <select name="category">
+                      {newsCategories.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>阅读状态</span>
+                    <select name="readStatus" defaultValue="稍后读">
+                      <option>未读</option>
+                      <option>稍后读</option>
+                      <option>已读</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>相关主题</span>
+                    <input name="topics" placeholder="银行秋招，AI，网络安全" />
+                  </label>
+                  <label className="wide">
+                    <span>为什么值得看</span>
+                    <input
+                      name="importance"
+                      placeholder="它可能影响你的研究、求职或近期行动"
+                    />
+                  </label>
+                  <button
+                    className="primary-button"
+                    disabled={busy === "feed.importUrl"}
+                  >
+                    {busy === "feed.importUrl" ? (
+                      <LoaderCircle className="spin" size={15} />
+                    ) : (
+                      <FileSearch size={15} />
+                    )}
+                    读取并保存
+                  </button>
+                </form>
+              </details>
+            </>
           )}
 
           <section className="feed-card-list">
@@ -497,14 +814,15 @@ export function IntelligenceCenter({
                       <span>{item.eventStatus}</span>
                     </div>
                     <time>
-                      更新于 {dateLabel(item.updatedAt)}
+                      发布于 {dateLabel(item.publishedAt || item.createdAt)}
                     </time>
                   </header>
                   <FeedArtwork item={item} />
                   <h2>{item.title}</h2>
-                  <p className="feed-summary">
-                    {item.summary || "暂时没有摘要，请打开原始来源核对。"}
-                  </p>
+                  <div className="feed-summary-block">
+                    <strong>简要总结</strong>
+                    <p className="feed-summary">{conciseFeedSummary(item)}</p>
+                  </div>
                   {readingMode !== "30s" && (
                     <div className="feed-importance">
                       <strong>为什么与你有关</strong>
@@ -541,7 +859,7 @@ export function IntelligenceCenter({
                         来源：{item.sourceName || "待补充"}
                       </span>
                       <span>
-                        发布：{dateLabel(item.publishedAt)}
+                        同步：{dateLabel(item.updatedAt)}
                       </span>
                     </div>
                     <div className="feed-actions">
@@ -979,6 +1297,19 @@ export function IntelligenceCenter({
                     <p>{source.kind} · {source.checkFrequency}</p>
                     <small>
                       上次读取：{dateLabel(source.lastCheckedAt)}
+                    </small>
+                    <small
+                      className={
+                        source.health?.consecutiveFailures
+                          ? "source-health issue"
+                          : "source-health healthy"
+                      }
+                    >
+                      {source.health?.consecutiveFailures
+                        ? `连续失败 ${source.health.consecutiveFailures} 次：${source.health.lastError}`
+                        : source.health
+                          ? `来源正常 · 本次 ${source.health.itemCount} 条，${source.health.imageCount} 条有图`
+                          : "等待首次健康检查"}
                     </small>
                   </div>
                   <button

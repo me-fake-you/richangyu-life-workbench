@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Check, Download, Share2, Smartphone } from "lucide-react";
+import { getDeviceId } from "./offline-sync";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -55,7 +56,38 @@ export function PwaProvider({ children }: { children: ReactNode }) {
     }, 0);
 
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      void navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .then(async (registration) => {
+          const worker =
+            registration.active || registration.waiting || registration.installing;
+          worker?.postMessage({
+            type: "SET_DEVICE_ID",
+            deviceId: getDeviceId(),
+            poll:
+              "Notification" in window &&
+              Notification.permission === "granted",
+          });
+          const periodic = registration as ServiceWorkerRegistration & {
+            periodicSync?: {
+              register: (
+                tag: string,
+                options: { minInterval: number },
+              ) => Promise<void>;
+            };
+          };
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted" &&
+            periodic.periodicSync
+          ) {
+            await periodic.periodicSync
+              .register("richangyu-background-reminders", {
+                minInterval: 60 * 60 * 1000,
+              })
+              .catch(() => undefined);
+          }
+        });
     }
 
     const onInstallPrompt = (event: Event) => {

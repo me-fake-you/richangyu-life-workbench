@@ -239,8 +239,30 @@ async function downloadSource(source: SourceRow) {
   return items;
 }
 
-async function discoverArticleImage(item: SourceItem) {
-  if (item.imageUrl) return item;
+function articleMetaContent(html: string, keys: string[]) {
+  for (const key of keys) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const propertyFirst = html.match(
+      new RegExp(
+        `<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)`,
+        "i",
+      ),
+    )?.[1];
+    const contentFirst = html.match(
+      new RegExp(
+        `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["']`,
+        "i",
+      ),
+    )?.[1];
+    if (propertyFirst || contentFirst) {
+      return decodeHtml(propertyFirst || contentFirst || "");
+    }
+  }
+  return "";
+}
+
+export async function discoverArticleMetadata(item: SourceItem) {
+  if (item.imageUrl && item.summary) return item;
   try {
     let url = safeSourceUrl(item.url);
     let response: Response | null = null;
@@ -262,20 +284,22 @@ async function discoverArticleImage(item: SourceItem) {
     if (!response?.ok) return item;
     const html = (await response.text()).slice(0, 400_000);
     const rawImage =
-      html.match(
-        /<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)/i,
-      )?.[1] ||
-      html.match(
-        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i,
-      )?.[1] ||
-      html.match(
-        /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)/i,
-      )?.[1] ||
+      articleMetaContent(html, [
+        "og:image",
+        "og:image:url",
+        "twitter:image",
+      ]) ||
       html.match(/<img\b[^>]*(?:src|data-src)=["']([^"']+)["']/i)?.[1] ||
       "";
+    const rawSummary = articleMetaContent(html, [
+      "og:description",
+      "description",
+      "twitter:description",
+    ]);
     return {
       ...item,
-      imageUrl: normalizeItemUrl(rawImage, url),
+      summary: item.summary || cleanText(rawSummary, 800),
+      imageUrl: item.imageUrl || normalizeItemUrl(rawImage, url),
     };
   } catch {
     return item;
@@ -301,10 +325,12 @@ async function ingestSource(
   subscriptions: Array<{ value: string; scope: string }>,
 ) {
   const downloaded = await downloadSource(source);
+  // Enrich the entries most likely to appear in today's brief. Feeds that
+  // already contain a summary and media URL do not trigger an article request.
   const enriched = await Promise.all(
-    downloaded.slice(0, 1).map(discoverArticleImage),
+    downloaded.slice(0, 12).map(discoverArticleMetadata),
   );
-  const items = [...enriched, ...downloaded.slice(1)];
+  const items = [...enriched, ...downloaded.slice(12)];
   const existing = await DB.prepare(
     `SELECT id, source_url FROM feed_items
      WHERE source_id = ? LIMIT 3000`,
@@ -375,12 +401,85 @@ async function ingestSource(
     ).bind(checkedAt, source.id),
   );
   await DB.batch(statements);
-  return { checked: items.length, added };
+  return {
+    checked: items.length,
+    added,
+    imageCount: items.filter((item) => Boolean(item.imageUrl)).length,
+  };
+}
+
+async function backfillStoredFeedMetadata(
+  DB: D1Database,
+  sourceId?: string,
+) {
+  const query = sourceId
+    ? DB.prepare(
+        `SELECT id, title, summary, source_url, image_url, published_at
+         FROM feed_items
+         WHERE source_id = ?
+           AND source_url <> ''
+           AND (summary = '' OR image_url = '')
+           AND is_ignored = 0
+         ORDER BY updated_at DESC
+         LIMIT 24`,
+      ).bind(sourceId)
+    : DB.prepare(
+        `SELECT id, title, summary, source_url, image_url, published_at
+         FROM feed_items
+         WHERE source_url <> ''
+           AND (summary = '' OR image_url = '')
+           AND is_ignored = 0
+         ORDER BY updated_at DESC
+         LIMIT 24`,
+      );
+  const stored = await query.all<{
+    id: string;
+    title: string;
+    summary: string;
+    source_url: string;
+    image_url: string;
+    published_at: string | null;
+  }>();
+  const enriched = await Promise.all(
+    stored.results.map(async (row) => ({
+      row,
+      item: await discoverArticleMetadata({
+        title: row.title,
+        summary: row.summary,
+        url: row.source_url,
+        imageUrl: row.image_url,
+        publishedAt: row.published_at,
+      }),
+    })),
+  );
+  const updates = enriched
+    .filter(
+      ({ row, item }) =>
+        item.summary !== row.summary || item.imageUrl !== row.image_url,
+    )
+    .map(({ row, item }) =>
+      DB.prepare(
+        `UPDATE feed_items
+         SET summary = CASE WHEN ? <> '' THEN ? ELSE summary END,
+             image_url = CASE WHEN ? <> '' THEN ? ELSE image_url END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+      ).bind(
+        item.summary,
+        item.summary,
+        item.imageUrl,
+        item.imageUrl,
+        row.id,
+      ),
+    );
+  if (updates.length) await DB.batch(updates);
+  return updates.length;
 }
 
 export async function refreshIntelligenceSources(
   DB: D1Database,
   sourceId?: string,
+  { backfill = true }: { backfill?: boolean } = {},
 ) {
   const runId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
@@ -428,19 +527,50 @@ export async function refreshIntelligenceSources(
     if (item.result) {
       checkedCount += item.result.checked;
       changedCount += item.result.added;
+      await DB.prepare(
+        `INSERT INTO feed_source_health
+         (source_id, last_success_at, last_error, consecutive_failures,
+          item_count, image_count, updated_at)
+         VALUES (?, CURRENT_TIMESTAMP, '', 0, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(source_id) DO UPDATE SET
+           last_success_at = CURRENT_TIMESTAMP,
+           last_error = '',
+           consecutive_failures = 0,
+           item_count = excluded.item_count,
+           image_count = excluded.image_count,
+           updated_at = CURRENT_TIMESTAMP`,
+      )
+        .bind(item.source.id, item.result.checked, item.result.imageCount)
+        .run();
     } else {
+      const message =
+        item.error instanceof Error ? item.error.message : "读取失败";
       errors.push(
-        `${item.source.name}：${
-          item.error instanceof Error ? item.error.message : "读取失败"
-        }`,
+        `${item.source.name}：${message}`,
       );
+      await DB.prepare(
+        `INSERT INTO feed_source_health
+         (source_id, last_failure_at, last_error, consecutive_failures,
+          updated_at)
+         VALUES (?, CURRENT_TIMESTAMP, ?, 1, CURRENT_TIMESTAMP)
+         ON CONFLICT(source_id) DO UPDATE SET
+           last_failure_at = CURRENT_TIMESTAMP,
+           last_error = excluded.last_error,
+           consecutive_failures = feed_source_health.consecutive_failures + 1,
+           updated_at = CURRENT_TIMESTAMP`,
+      )
+        .bind(item.source.id, message.slice(0, 1000))
+      .run();
     }
   }
+  const enrichedCount = backfill
+    ? await backfillStoredFeedMetadata(DB, sourceId)
+    : 0;
   const completedAt = new Date().toISOString();
   const status =
     checkedCount > 0 ? (errors.length ? "部分完成" : "已完成") : "失败";
   const message = [
-    `检查 ${sourceRows.length} 个来源，读取 ${checkedCount} 条，新增 ${changedCount} 条。`,
+    `检查 ${sourceRows.length} 个来源，读取 ${checkedCount} 条，新增 ${changedCount} 条，补全 ${enrichedCount} 条摘要或配图。`,
     ...errors.slice(0, 5),
   ].join("\n");
   await DB.prepare(
@@ -456,6 +586,7 @@ export async function refreshIntelligenceSources(
     sourceCount: sourceRows.length,
     checkedCount,
     addedCount: changedCount,
+    enrichedCount,
     errors,
   };
 }
@@ -501,7 +632,9 @@ function fallbackBrief(
     ...(items.length
       ? items.map(
           (item, index) =>
-            `${index + 1}. ${item.title}（${item.source}，${item.ref}）\n${item.url}`,
+            `${index + 1}. ${item.title}（${item.source}，${item.ref}）\n简要总结：${
+              item.summary || "来源暂未提供摘要，请打开原文核对。"
+            }\n${item.url}`,
         )
       : ["今日暂未从已启用来源读取到新条目。"]),
   ];
@@ -532,32 +665,22 @@ export async function generateDailyIntelligenceBrief(
       };
   const now = new Date();
   const window = localDayWindow(now, timezoneOffset);
-  const recentStart = new Date(now.getTime() - 48 * 60 * 60_000).toISOString();
   const recent = await DB.prepare(
     `SELECT id, title, summary, source_url, source_name, category,
             published_at, updated_at
      FROM feed_items
      WHERE is_ignored = 0
        AND category IN ('国内', '国际')
-       AND COALESCE(published_at, updated_at) >= ?
+       AND datetime(COALESCE(published_at, created_at, updated_at)) >= datetime(?)
+       AND datetime(COALESCE(published_at, created_at, updated_at)) < datetime(?)
      ORDER BY official_confirmed DESC,
-              COALESCE(published_at, updated_at) DESC
+              COALESCE(published_at, created_at, updated_at) DESC
      LIMIT 80`,
   )
-    .bind(recentStart)
+    .bind(window.start.toISOString(), window.end.toISOString())
     .all<FeedContextRow>();
 
-  let rows = recent.results;
-  if (!rows.length) {
-    const latest = await DB.prepare(
-      `SELECT id, title, summary, source_url, source_name, category,
-              published_at, updated_at
-       FROM feed_items
-       WHERE is_ignored = 0 AND category IN ('国内', '国际')
-       ORDER BY updated_at DESC LIMIT 30`,
-    ).all<FeedContextRow>();
-    rows = latest.results;
-  }
+  const rows = recent.results;
   const domesticRows = rows
     .filter((item) => item.category === "国内")
     .slice(0, 6);

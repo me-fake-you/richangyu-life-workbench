@@ -146,10 +146,12 @@ export async function GET(request: Request) {
                   si.interruption_reason, si.reflection,
                   srs.repeat_until, srs.reminder_minutes, srs.weekdays,
                   srs.custom_interval, srs.custom_unit,
+                  tsl.task_id,
                   si.created_at
            FROM schedule_instances si
            JOIN schedule_events se ON se.id = si.schedule_id
            LEFT JOIN schedule_rule_settings srs ON srs.schedule_id = se.id
+           LEFT JOIN task_schedule_links tsl ON tsl.schedule_id = se.id
            ORDER BY si.occurrence_start ASC LIMIT 2500`,
         ),
         DB.prepare(
@@ -221,6 +223,7 @@ export async function GET(request: Request) {
       status: row.status,
       plannedMinutes: row.planned_minutes,
       actualMinutes: row.actual_minutes,
+      taskId: row.task_id || null,
       actualStartAt: row.actual_start_at,
       actualEndAt: row.actual_end_at,
       interruptionReason: row.interruption_reason,
@@ -422,9 +425,10 @@ export async function POST(request: Request) {
         `SELECT si.schedule_id, se.title, se.category,
                 si.occurrence_start AS start_at,
                 si.occurrence_end AS end_at,
-                se.place, se.person, se.project
+                se.place, se.person, se.project, tsl.task_id
          FROM schedule_instances si
          JOIN schedule_events se ON se.id = si.schedule_id
+         LEFT JOIN task_schedule_links tsl ON tsl.schedule_id = se.id
          WHERE si.id = ?`,
       )
         .bind(id)
@@ -436,6 +440,7 @@ export async function POST(request: Request) {
           place: string;
           person: string;
           project: string;
+          task_id: string | null;
         }>();
       const statements = [
         DB.prepare(
@@ -484,6 +489,20 @@ export async function POST(request: Request) {
             schedule.place,
             schedule.project,
             schedule.end_at,
+          ),
+        );
+      }
+      if (status === "已完成" && schedule?.task_id) {
+        statements.push(
+          DB.prepare(
+            `UPDATE tasks SET actual_minutes = MAX(actual_minutes, ?),
+               status = '已完成', completed_at = COALESCE(completed_at, ?),
+               today_rank = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+          ).bind(
+            actualMinutes,
+            payload.actualEndAt ? isoDate(payload.actualEndAt) : schedule.end_at,
+            schedule.task_id,
           ),
         );
       }

@@ -8,11 +8,13 @@ import {
   Inbox,
   Mic,
   PenLine,
+  ListPlus,
   Share2,
   Smartphone,
   Utensils,
   X,
 } from "lucide-react";
+import { getDeviceId } from "./offline-sync";
 import { useEffect, useId, useState } from "react";
 import { usePwa } from "./pwa-client";
 
@@ -21,6 +23,7 @@ type MobileQuickSheetProps = {
   voiceFirst?: boolean;
   onClose: () => void;
   onText: () => void;
+  onTask: () => void;
   onPhoto: (file: File) => void;
   onVoice: (file: File) => void;
   onMeal: (file?: File) => void;
@@ -37,6 +40,7 @@ export function MobileQuickSheet({
   voiceFirst = false,
   onClose,
   onText,
+  onTask,
   onPhoto,
   onVoice,
   onMeal,
@@ -162,6 +166,19 @@ export function MobileQuickSheet({
 
           <button
             type="button"
+            className="task"
+            onClick={() => {
+              haptic();
+              onTask();
+            }}
+          >
+            <span><ListPlus size={23} /></span>
+            <strong>添加任务</strong>
+            <small>进入任务收件箱和 Top 3</small>
+          </button>
+
+          <button
+            type="button"
             className="inbox"
             onClick={() => {
               haptic();
@@ -183,7 +200,7 @@ export function MobileQuickSheet({
           >
             <span><Command size={23} /></span>
             <strong>更多指令</strong>
-            <small>日程、记账与建表</small>
+            <small>任务、日程、记账与建表</small>
           </button>
         </div>
 
@@ -291,6 +308,26 @@ export function NotificationSetupCard({
     }
     const registration = await navigator.serviceWorker?.ready;
     if (registration) {
+      const worker =
+        registration.active || registration.waiting || registration.installing;
+      worker?.postMessage({
+        type: "SET_DEVICE_ID",
+        deviceId: getDeviceId(),
+        poll: true,
+      });
+      const periodic = registration as ServiceWorkerRegistration & {
+        periodicSync?: {
+          register: (
+            tag: string,
+            options: { minInterval: number },
+          ) => Promise<void>;
+        };
+      };
+      await periodic.periodicSync
+        ?.register("richangyu-background-reminders", {
+          minInterval: 60 * 60 * 1000,
+        })
+        .catch(() => undefined);
       await registration.showNotification("日常屿提醒已开启", {
         body: "日程和自动化提醒会在系统允许时显示。",
         icon: "/app-icon-192.png",
@@ -302,7 +339,7 @@ export function NotificationSetupCard({
         body: "日程和自动化提醒会在系统允许时显示。",
       });
     }
-    onNotice("系统提醒已经开启。");
+    onNotice("系统提醒已经开启；打开工作台时会自动补发未读提醒。");
   }
 
   return (
@@ -329,7 +366,8 @@ export function NotificationSetupCard({
                   : "需要你主动允许一次"}
           </strong>
           <small>
-            手机系统可能限制后台网页通知；工作台内提醒和自动化日志始终保留。
+            打开或安装工作台后会自动检查未读提醒；手机系统可能暂停后台网页，
+            因此关掉浏览器后的准时唤醒不能保证，提醒记录仍会保留。
           </small>
         </div>
       </div>

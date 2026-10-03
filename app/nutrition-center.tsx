@@ -46,12 +46,15 @@ type Meal = {
   fatG: number;
   confidence: number;
   analysisProvider: string;
+  correctionCount: number;
+  lastCorrectedAt: string | null;
   items: MealItem[];
   photos: MealPhoto[];
 };
 
 type NutritionData = {
   meals: Meal[];
+  memoryCount: number;
   settings: {
     calorieTarget: number;
     proteinTarget: number;
@@ -64,6 +67,7 @@ type NutritionData = {
 
 const emptyNutrition: NutritionData = {
   meals: [],
+  memoryCount: 0,
   settings: {
     calorieTarget: 2000,
     proteinTarget: 90,
@@ -129,6 +133,17 @@ function mealIcon(type: string) {
   return "加";
 }
 
+function calorieRange(calories: number, confidence: number) {
+  if (confidence >= 0.98) {
+    const rounded = Math.round(calories);
+    return `${rounded} 千卡`;
+  }
+  const margin = confidence >= 0.8 ? 0.12 : confidence >= 0.6 ? 0.2 : 0.3;
+  return `${Math.max(0, Math.round(calories * (1 - margin)))}–${Math.round(
+    calories * (1 + margin),
+  )} 千卡`;
+}
+
 function ProgressMetric({
   label,
   value,
@@ -181,6 +196,7 @@ export function NutritionCenter({
     summary: string;
     provider: string;
     confidence: number;
+    calories: number;
   } | null>(null);
 
   async function load() {
@@ -284,6 +300,7 @@ export function NutritionCenter({
           summary: string;
           provider: string;
           confidence: number;
+          calories: number;
         };
       };
       if (!response.ok) throw new Error(result.error || "保存失败。");
@@ -360,9 +377,10 @@ export function NutritionCenter({
       carbsG: carbs,
       fatG: fat,
       items: meal.items,
+      reason: "用户根据实际份量修正",
     });
     await load();
-    onNotice("营养数据已按你的输入修正。");
+    onNotice("修正已保存，并加入个人食物记忆供下次估算参考。");
   }
 
   async function editTargets() {
@@ -421,7 +439,10 @@ export function NutritionCenter({
         <div>
           <span className="eyebrow">MEALS & NUTRITION</span>
           <h1>记录一日三餐，也看见身体需要什么</h1>
-          <p>上传餐食照片、确认份量，追踪每日热量和三大营养素。</p>
+          <p>
+            上传餐食照片、确认份量，追踪每日热量和三大营养素。已积累{" "}
+            {data.memoryCount} 条个人食物记忆。
+          </p>
         </div>
         <button className="primary-button" onClick={() => setModalOpen(true)}>
           <Camera size={17} /> 拍照记录一餐
@@ -517,6 +538,10 @@ export function NutritionCenter({
                 : `${lastEstimate.provider.toUpperCase()} 照片识别`}
             </strong>
             <p>{lastEstimate.summary}</p>
+            <small>
+              建议按区间理解：{" "}
+              {calorieRange(lastEstimate.calories, lastEstimate.confidence)}
+            </small>
           </div>
           <em>可信度 {Math.round(lastEstimate.confidence * 100)}%</em>
           <button onClick={() => setLastEstimate(null)} aria-label="关闭">
@@ -554,6 +579,11 @@ export function NutritionCenter({
                         ? "本地/手动"
                         : `${meal.analysisProvider.toUpperCase()} 识别`}
                     </span>
+                    {meal.correctionCount > 0 && (
+                      <span className="meal-correction-badge">
+                        已修正 {meal.correctionCount} 次
+                      </span>
+                    )}
                   </header>
                   {meal.photos[0] && (
                     <img
@@ -575,7 +605,9 @@ export function NutritionCenter({
                     ))}
                   </div>
                   <div className="meal-macros">
-                    <strong>{Math.round(meal.estimatedCalories)} 千卡</strong>
+                    <strong>
+                      {calorieRange(meal.estimatedCalories, meal.confidence)}
+                    </strong>
                     <span>蛋白 {Math.round(meal.proteinG)}g</span>
                     <span>碳水 {Math.round(meal.carbsG)}g</span>
                     <span>脂肪 {Math.round(meal.fatG)}g</span>
@@ -647,7 +679,9 @@ export function NutritionCenter({
             <div>
               <strong>关于热量估算</strong>
               <p>
-                照片无法精确判断油、调味料和隐藏食材，结果只用于日常记录。请根据实际份量修正，不作为医疗、营养治疗或进食障碍建议。
+                照片无法精确判断油、调味料和隐藏食材，因此用热量区间而不是假装精确。
+                你的修正会形成个人食物记忆，但结果仍只用于日常记录，不作为医疗、
+                营养治疗或进食障碍建议。
               </p>
             </div>
           </section>

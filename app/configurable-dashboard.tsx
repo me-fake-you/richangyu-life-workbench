@@ -145,6 +145,15 @@ type DashboardIntelligence = {
   };
 };
 
+type DashboardTask = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  today_rank: number | null;
+  due_at: string | null;
+};
+
 const dailyNotes = [
   ["稳稳向前", "不必一次改变全部生活，今天认真完成一小块，就已经在靠近想去的地方。", "先完成最重要、也最容易开始的十分钟。"],
   ["允许生长", "成长很少发出巨响，它常常只是你在普通的一天里，又做了一次没有放弃的选择。", "为正在坚持的事情留下一条记录。"],
@@ -233,6 +242,7 @@ export function ConfigurableDashboard({
   const [finance, setFinance] = useState<DashboardFinance | null>(null);
   const [intelligence, setIntelligence] =
     useState<DashboardIntelligence | null>(null);
+  const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [referenceNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -266,6 +276,13 @@ export function ConfigurableDashboard({
     fetch("/api/intelligence", { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: DashboardIntelligence) => setIntelligence(payload))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/tasks", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { tasks?: DashboardTask[] }) => setTasks(payload.tasks ?? []))
       .catch(() => undefined);
   }, []);
 
@@ -486,15 +503,18 @@ export function ConfigurableDashboard({
       );
     }
     if (id === "top3") {
+      const topTasks = tasks
+        .filter((task) => task.today_rank && task.status !== "已完成")
+        .sort((a, b) => Number(a.today_rank) - Number(b.today_rank));
       return (
-        <div className="config-priorities">
+        <button className="config-priorities" onClick={() => onView("tasks")}>
           {[0, 1, 2].map((index) => (
             <span key={index}>
               <i>{index + 1}</i>
-              {schedules[index]?.title || "留给一件重要的事"}
+              {topTasks[index]?.title || "留给一件重要的事"}
             </span>
           ))}
-        </div>
+        </button>
       );
     }
     if (id === "inbox") {
