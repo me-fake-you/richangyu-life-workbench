@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">&#x751F;&#x6D3B;&#x5DE5;&#x4F5C;&#x53F0;</string>
+    <string name="title_activity_main">&#x751F;&#x6D3B;&#x5DE5;&#x4F5C;&#x53F0;</string>
+    <string name="package_name">com.richangyu.lifeworkbench</string>
+    <string name="custom_url_scheme">com.richangyu.lifeworkbench</string>
+</resources>
