@@ -53,7 +53,11 @@ test("intelligence cards capture images and render safe Markdown", async () => {
   assert.match(center, /<FeedArtwork item=\{item\}/);
   assert.match(center, /<MarkdownContent content=\{latestDailyBrief\.content\}/);
   assert.match(route, /og:image/);
-  assert.match(briefing, /discoverArticleImage/);
+  assert.match(briefing, /export async function discoverArticleMetadata/);
+  assert.match(briefing, /downloaded\.slice\(0, 12\)\.map\(discoverArticleMetadata\)/);
+  assert.match(briefing, /await discoverArticleMetadata\(\{/);
+  assert.match(briefing, /og:image/);
+  assert.match(briefing, /twitter:image/);
   assert.match(imageRoute, /SELECT image_url FROM feed_items/);
   assert.match(imageRoute, /content-type/);
   assert.match(markdown, /inlineMarkdown/);

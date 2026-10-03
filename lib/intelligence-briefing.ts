@@ -261,7 +261,7 @@ function articleMetaContent(html: string, keys: string[]) {
   return "";
 }
 
-async function discoverArticleMetadata(item: SourceItem) {
+export async function discoverArticleMetadata(item: SourceItem) {
   if (item.imageUrl && item.summary) return item;
   try {
     let url = safeSourceUrl(item.url);
