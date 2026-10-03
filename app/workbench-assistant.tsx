@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDays, Check, LoaderCircle, MessageCircle, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 import type { CalendarChoice, PlanPreview } from "../lib/assistant-plan";
 import { MarkdownContent } from "./markdown-content";
@@ -38,31 +38,37 @@ export function WorkbenchAssistant() {
   const input = useRef<HTMLTextAreaElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const chatEnd = useRef<HTMLDivElement | null>(null);
+  const statusRequest = useRef(0);
   const financialApprovalNeeded = mode === "chat" && (capture?.requiresFinancialConsent || needsFinancialApproval(prompt + captureSource + messages.slice(-4).map((item) => item.text).join(" ")));
 
-  async function load(signal?: AbortSignal) {
-    setLoading(true);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const revision = ++statusRequest.current;
     try {
       const response = await fetch(`/api/assistant?days=${days}`, { cache: "no-store", signal });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "日程读取失败。");
+      if (signal?.aborted || revision !== statusRequest.current) return;
       setStatus(body as Status);
     } catch (reason) {
-      if (!signal?.aborted) setError(reason instanceof Error ? reason.message : "日程读取失败。");
-    } finally { if (!signal?.aborted) setLoading(false); }
-  }
+      if (!signal?.aborted && revision === statusRequest.current) {
+        setError(reason instanceof Error ? reason.message : "日程读取失败。");
+      }
+    } finally {
+      if (!signal?.aborted && revision === statusRequest.current) setLoading(false);
+    }
+  }, [days]);
 
   useEffect(() => {
     if (!open) return;
     const request = new AbortController();
     void load(request.signal);
     return () => request.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, days]);
+  }, [open, load]);
 
   useEffect(() => {
     if (!open) return;
     const oldOverflow = document.body.style.overflow;
+    const returnFocus = trigger.current;
     document.body.style.overflow = "hidden";
     input.current?.focus();
     function onKey(event: KeyboardEvent) {
@@ -77,7 +83,7 @@ export function WorkbenchAssistant() {
     return () => {
       document.body.style.overflow = oldOverflow;
       document.removeEventListener("keydown", onKey);
-      trigger.current?.focus();
+      returnFocus?.focus();
     };
   }, [open]);
 
@@ -105,7 +111,7 @@ export function WorkbenchAssistant() {
 
   async function submit() {
     const question = prompt.trim();
-    if (!question || busy || cooldown || !status?.ready) return;
+    if (!question || busy || cooldown || loading || !status?.ready) return;
     if (mode === "chat" && financialApprovalNeeded && !allowFinancial) {
       setError("这条包含金额或收款信息。请先勾选本次金额识别授权，再发送；尚未发送给 AI。");
       return;
@@ -136,6 +142,7 @@ export function WorkbenchAssistant() {
     try {
       await request({ action: "apply", confirmed: true, payload: preview.payload, signature: preview.signature });
       setSaved(true);
+      setLoading(true);
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存失败。"); }
     finally { setBusy(""); }
@@ -149,6 +156,7 @@ export function WorkbenchAssistant() {
     try {
       await request({ action: "capture.apply", confirmed: true, payload: capture.payload, signature: capture.signature, allowFinancial });
       setCaptureSaved(true); setCaptureSource(""); setPrompt("");
+      setLoading(true);
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存没有完成。"); }
     finally { setBusy(""); }
@@ -158,7 +166,7 @@ export function WorkbenchAssistant() {
     ? ["今天下午两点去兼职，做两个小时", "今天兼职已结束，很累，帮我记下来", "今天家教兼职收入120元已经到账，帮我记账", "今天想读论文、运动，帮我安排时间"]
     : ["明天安排 90 分钟论文阅读、30 分钟运动，留出休息时间", "把我勾选的单次日程调整到明天下午，不要重叠"];
   return <>
-    <button className="wa-trigger" ref={trigger} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} aria-controls="workbench-assistant">
+    <button className="wa-trigger" ref={trigger} onClick={() => { setLoading(true); setError(""); setStatus(null); setOpen(true); }} aria-haspopup="dialog" aria-expanded={open} aria-controls="workbench-assistant">
       <Sparkles size={19} /><span>AI 助手</span>
     </button>
     {open && <div className="wa-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
@@ -175,7 +183,7 @@ export function WorkbenchAssistant() {
         </nav>
         <div className="wa-body">
           <div className="wa-settings">
-            <label className="wa-range">计划范围<select value={days} disabled={Boolean(busy)} onChange={(event) => { setDays(Number(event.target.value)); setSelected([]); }}><option value={1}>未来 1 天</option><option value={7}>未来 7 天</option><option value={30}>未来 30 天</option></select></label>
+            <label className="wa-range">计划范围<select value={days} disabled={Boolean(busy)} onChange={(event) => { const nextDays = Number(event.target.value); if (nextDays === days) return; setLoading(true); setError(""); setStatus(null); setDays(nextDays); setSelected([]); }}><option value={1}>未来 1 天</option><option value={7}>未来 7 天</option><option value={30}>未来 30 天</option></select></label>
             <label className="wa-consent"><input type="checkbox" checked={includeCalendar} disabled={Boolean(busy)} onChange={(event) => setIncludeCalendar(event.target.checked)} /><span>结合我勾选的日程</span></label>
           </div>
           <p className="wa-privacy"><ShieldCheck size={15} />{includeCalendar ? "只发送勾选日程的标题、分类和时间给 Groq，最多 8 项。" : "默认不发送站内记录给 Groq，仅发送本次问题与最近对话。"}</p>
@@ -206,7 +214,8 @@ export function WorkbenchAssistant() {
             {!saved ? <div className="wa-confirm"><p>草稿 15 分钟内有效。确认后会写入真实日程；不会删除你的记录或更改重复规则。</p><button disabled={Boolean(busy) || Boolean(preview.warnings.length)} onClick={() => void apply()}>{busy === "apply" ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />}确认保存到日程</button><button className="wa-discard" disabled={Boolean(busy)} onClick={() => { setPreview(null); setError(""); }}>放弃草稿</button></div>
               : <div className="wa-success" role="status"><Check size={18} />日程已保存。<button onClick={() => window.location.reload()}>刷新工作台查看</button><button onClick={() => { setPreview(null); setSaved(false); setPrompt(""); }}>安排下一份计划</button></div>}
           </section>}
-          {error && <div className="wa-error" role="alert"><p>{error}</p><button disabled={Boolean(busy)} onClick={() => { setError(""); void load(); }}>重新读取连接状态</button></div>}
+          {loading && <p className="wa-thinking" role="status"><LoaderCircle className="spin" size={17} />正在读取连接状态与日程...</p>}
+          {error && <div className="wa-error" role="alert"><p>{error}</p><button disabled={Boolean(busy)} onClick={() => { setError(""); setLoading(true); setStatus(null); void load(); }}>重新读取连接状态</button></div>}
           {status && !status.ready && <p className="wa-warning">免费 AI 尚未配置完成，现在不会发起模型调用。</p>}
           {busy && <p className="wa-thinking" role="status"><LoaderCircle className="spin" size={17} />{busy === "apply" || busy === "capture.apply" ? "正在保存，请勿重复提交..." : "免费 AI 正在思考，请稍等..."}{busy !== "apply" && busy !== "capture.apply" && <button onClick={() => controller.current?.abort()}>取消生成</button>}</p>}
           {!messages.length && !preview && <div className="wa-examples">{examples.map((example) => <button key={example} disabled={Boolean(busy)} onClick={() => { setPrompt(example); input.current?.focus(); }}>{example}</button>)}</div>}
@@ -214,7 +223,7 @@ export function WorkbenchAssistant() {
         <form className="wa-composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           <label className="wa-input-label" htmlFor="wa-prompt">{mode === "chat" ? captureSource ? "补充一下，或告诉我怎么修改" : "今天发生了什么，或想做什么？" : preview && !saved ? "想怎样修改这份草稿？" : "你想安排什么？"}</label>
           <div className="wa-input-row"><textarea ref={input} id="wa-prompt" value={prompt} maxLength={800} rows={3} disabled={Boolean(busy)} placeholder={mode === "chat" ? "例如：今天做完兼职很累，帮我记下来；或下午两点去兼职两小时" : "例如：明天上午读论文，晚上运动，别排得太满"} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} />
-            <button type="submit" disabled={!prompt.trim() || Boolean(busy) || Boolean(cooldown) || !status?.ready}>{busy && busy !== "apply" ? <LoaderCircle className="spin" size={20} /> : <Send size={20} />}<span>{cooldown ? `${cooldown} 秒后重试` : mode === "chat" ? "发送" : preview && !saved ? "修改草稿" : "生成草稿"}</span></button>
+            <button type="submit" disabled={!prompt.trim() || Boolean(busy) || Boolean(cooldown) || loading || !status?.ready}>{busy && busy !== "apply" ? <LoaderCircle className="spin" size={20} /> : <Send size={20} />}<span>{cooldown ? `${cooldown} 秒后重试` : mode === "chat" ? "发送" : preview && !saved ? "修改草稿" : "生成草稿"}</span></button>
           </div><footer><span>{prompt.length}/800 · Shift + Enter 换行</span><span>本次对话不保存为历史 · 免费额度有限</span></footer>
         </form>
       </section>

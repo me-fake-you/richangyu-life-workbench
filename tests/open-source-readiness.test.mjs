@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { assertSupportedProjectVersion } from "./helpers/project-version.mjs";
 
 test("the repository exposes a safe, self-hostable v1 baseline", async () => {
   const [pkgRaw, gitignore, envExample, hostingExample, readme, englishReadme, security, deployment, tutorialPage, pagesWorkflow, ciWorkflow] =
@@ -20,7 +21,7 @@ test("the repository exposes a safe, self-hostable v1 baseline", async () => {
     ]);
 
   const pkg = JSON.parse(pkgRaw);
-  assert.equal(pkg.version, "1.5.0");
+  assertSupportedProjectVersion(pkg.version);
   assert.equal(pkg.license, "MIT");
   assert.match(pkg.scripts.validate, /typecheck.*lint.*test.*build/);
   assert.match(pkg.scripts["deploy:cloudflare"], /wrangler\.self-host\.json/);
