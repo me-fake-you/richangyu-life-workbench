@@ -61,14 +61,14 @@
     "drizzle-orm": "0.45.2",
     "ical.js": "^2.2.1",
     "lucide-react": "^1.27.0",
-    "next": "16.2.6",
+    "next": "16.3.8",
     "papaparse": "^5.5.4",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/vite-plugin": "1.62.5",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -78,14 +78,14 @@
     "cross-env": "^10.1.0",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
+    "eslint-config-next": "16.3.8",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "@capacitor/cli": "^6.1.2",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.3.2",
+    "wrangler": "4.147.0"
   },
   "type": "module"
 }
