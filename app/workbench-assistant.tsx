@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Check, LoaderCircle, MessageCircle, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 import type { CalendarChoice, PlanPreview } from "../lib/assistant-plan";
 import { MarkdownContent } from "./markdown-content";
@@ -12,6 +12,13 @@ type Message = { role: "user" | "assistant"; text: string };
 type Status = { ready: boolean; model: string; schedules: CalendarChoice[] };
 function timeLabel(value: string) {
   return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+async function fetchAssistantStatus(days: number, signal?: AbortSignal): Promise<Status> {
+  const response = await fetch(`/api/assistant?days=${days}`, { cache: "no-store", signal });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "日程读取失败。");
+  return body as Status;
 }
 
 export function WorkbenchAssistant() {
@@ -41,14 +48,13 @@ export function WorkbenchAssistant() {
   const statusRequest = useRef(0);
   const financialApprovalNeeded = mode === "chat" && (capture?.requiresFinancialConsent || needsFinancialApproval(prompt + captureSource + messages.slice(-4).map((item) => item.text).join(" ")));
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  // Event handlers can refresh the status without coupling the effect to setters.
+  async function load(signal?: AbortSignal) {
     const revision = ++statusRequest.current;
     try {
-      const response = await fetch(`/api/assistant?days=${days}`, { cache: "no-store", signal });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "日程读取失败。");
+      const body = await fetchAssistantStatus(days, signal);
       if (signal?.aborted || revision !== statusRequest.current) return;
-      setStatus(body as Status);
+      setStatus(body);
     } catch (reason) {
       if (!signal?.aborted && revision === statusRequest.current) {
         setError(reason instanceof Error ? reason.message : "日程读取失败。");
@@ -56,14 +62,27 @@ export function WorkbenchAssistant() {
     } finally {
       if (!signal?.aborted && revision === statusRequest.current) setLoading(false);
     }
-  }, [days]);
+  }
 
   useEffect(() => {
     if (!open) return;
     const request = new AbortController();
-    void load(request.signal);
+    const revision = ++statusRequest.current;
+    // Only settled network callbacks update the interface.
+    void fetchAssistantStatus(days, request.signal)
+      .then((body) => {
+        if (!request.signal.aborted && revision === statusRequest.current) setStatus(body);
+      })
+      .catch((reason: unknown) => {
+        if (!request.signal.aborted && revision === statusRequest.current) {
+          setError(reason instanceof Error ? reason.message : "日程读取失败。");
+        }
+      })
+      .finally(() => {
+        if (!request.signal.aborted && revision === statusRequest.current) setLoading(false);
+      });
     return () => request.abort();
-  }, [open, load]);
+  }, [open, days]);
 
   useEffect(() => {
     if (!open) return;
