@@ -35,6 +35,7 @@ import android.widget.TimePicker;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.splashscreen.SplashScreen;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -56,14 +57,14 @@ public class MainActivity extends AppCompatActivity {
     private NativeAiSheet aiSheet;
     private boolean bindingChanging;
     private AlertDialog bindingDialog;
-    private static final int INK = Color.rgb(29, 45, 40);
-    private static final int MUTED = Color.rgb(102, 116, 109);
-    private static final int GREEN = Color.rgb(35, 103, 77);
-    private static final int PALE_GREEN = Color.rgb(226, 239, 230);
-    private static final int CREAM = Color.rgb(248, 244, 235);
-    private static final int AMBER = Color.rgb(235, 169, 66);
-    private static final int BLUE = Color.rgb(75, 116, 151);
-    private static final int ROSE = Color.rgb(171, 91, 82);
+    private static final int INK = NativeUi.INK;
+    private static final int MUTED = NativeUi.MUTED;
+    private static final int GREEN = NativeUi.FOREST;
+    private static final int PALE_GREEN = NativeUi.MINT;
+    private static final int CREAM = NativeUi.PAPER;
+    private static final int AMBER = NativeUi.AMBER;
+    private static final int BLUE = NativeUi.BLUE;
+    private static final int ROSE = NativeUi.ROSE;
 
     private FrameLayout root;
     private FrameLayout content;
@@ -72,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView authWebView;
     private JSONObject data;
     private String tab = "home";
+    private String lastRenderedTab = "";
     private String deviceId;
     private boolean bridgeReady = false;
     private boolean syncing = false;
@@ -90,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(CREAM);
         getWindow().setNavigationBarColor(Color.WHITE);
@@ -146,97 +149,98 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private TextView text(String value, int size, int color) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(color);
-        view.setLineSpacing(0, 1.15f);
-        return view;
+        return NativeUi.label(this, value, size, color, false);
     }
 
     private void buildShell() {
         root = new FrameLayout(this);
-        root.setBackgroundColor(CREAM);
-
-        LinearLayout shell = new LinearLayout(this);
-        shell.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(NativeUi.pageBackground());
+        LinearLayout shell = NativeUi.column(this);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(20), dp(12), dp(18), dp(8));
-        TextView brand = text("生活工作台", 23, INK);
-        brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        header.addView(brand, new LinearLayout.LayoutParams(0, dp(54), 1));
-        syncLabel = text("正在连接", 12, MUTED);
+        header.setPadding(dp(20), dp(8), dp(18), dp(8));
+        NativeUi.IconView mark = new NativeUi.IconView(this, "leaf", GREEN);
+        header.addView(mark, new LinearLayout.LayoutParams(dp(28), dp(32)));
+        LinearLayout identity = NativeUi.column(this);
+        identity.setPadding(dp(10), 0, dp(8), 0);
+        TextView brand = text("日常屿", 22, INK);
+        brand.setTypeface(NativeUi.DISPLAY);
+        identity.addView(brand);
+        identity.addView(text("生活工作台", 11, MUTED));
+        header.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
+        syncLabel = text("正在连接", 12, GREEN);
         syncLabel.setGravity(Gravity.CENTER);
-        syncLabel.setPadding(dp(12), dp(7), dp(12), dp(7));
-        syncLabel.setBackground(background(Color.rgb(231, 237, 232), 18));
+        syncLabel.setMinHeight(dp(48));
+        syncLabel.setMaxLines(2);
+        syncLabel.setPadding(dp(12), dp(9), dp(12), dp(9));
+        syncLabel.setBackground(NativeUi.touch(this, PALE_GREEN, 16, Color.TRANSPARENT));
         syncLabel.setOnClickListener(v -> sync());
-        header.addView(syncLabel);
-        shell.addView(header, new LinearLayout.LayoutParams(-1, dp(72)));
+        header.addView(syncLabel, new LinearLayout.LayoutParams(-2, -2));
+        shell.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         content = new FrameLayout(this);
         shell.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
-
+        LinearLayout footer = NativeUi.column(this);
+        footer.setBackgroundColor(Color.WHITE);
+        View line = new View(this);
+        line.setBackgroundColor(NativeUi.BORDER);
+        footer.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
         nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(8), dp(5), dp(8), dp(8));
-        nav.setBackgroundColor(Color.WHITE);
+        nav.setPadding(dp(6), dp(2), dp(6), dp(2));
         addNav("首页", "home");
         addNav("记录", "records");
         addNav("日程", "schedule");
-        addNav("AI", "ai");
+        addNav("AI 助手", "ai");
         addNav("我的", "me");
-        shell.addView(nav, new LinearLayout.LayoutParams(-1, dp(68)));
+        footer.addView(nav, new LinearLayout.LayoutParams(-1, -2));
+        shell.addView(footer, new LinearLayout.LayoutParams(-1, -2));
         renderLoading("正在连接你的工作台");
     }
 
     private void addNav(String label, String key) {
-        TextView item = text(label, 14, MUTED);
-        item.setTag(key);
-        item.setGravity(Gravity.CENTER);
-        item.setOnClickListener(v -> selectTab(key));
-        nav.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
+        nav.addView(NativeUi.navItem(this, label, key, key.equals(tab), v -> selectTab(key)),
+            new LinearLayout.LayoutParams(0, -2, 1));
     }
 
     private void selectTab(String key) {
         if ("ai".equals(key)) { showAi(); return; }
         tab = key;
-        for (int i = 0; i < nav.getChildCount(); i++) {
-            TextView item = (TextView) nav.getChildAt(i);
-            boolean active = key.equals(item.getTag());
-            item.setTextColor(active ? GREEN : MUTED);
-            item.setTypeface(Typeface.DEFAULT, active ? Typeface.BOLD : Typeface.NORMAL);
-        }
         render();
     }
 
     private void renderLoading(String label) {
         content.removeAllViews();
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout box = NativeUi.column(this);
         box.setGravity(Gravity.CENTER);
+        NativeUi.IconView mark = new NativeUi.IconView(this, "leaf", GREEN);
+        box.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        TextView title = text("你的日常，正在就位", 21, INK);
+        title.setTypeface(NativeUi.DISPLAY);
+        title.setPadding(0, dp(18), 0, dp(12));
+        box.addView(title);
         ProgressBar progress = new ProgressBar(this);
-        box.addView(progress, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        TextView hint = text(label, 14, MUTED);
-        hint.setPadding(0, dp(14), 0, 0);
+        progress.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(GREEN));
+        box.addView(progress, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        TextView hint = text(label, 13, MUTED);
+        hint.setPadding(dp(20), dp(12), dp(20), 0);
+        hint.setGravity(Gravity.CENTER);
         box.addView(hint);
         content.addView(box, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private LinearLayout page() {
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(18), dp(6), dp(18), dp(36));
+        LinearLayout body = NativeUi.column(this);
+        body.setPadding(dp(18), dp(12), dp(18), dp(28));
         return body;
     }
 
     private LinearLayout card() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(17), dp(18), dp(17));
-        box.setBackground(background(Color.WHITE, 22));
+        LinearLayout box = NativeUi.column(this);
+        box.setPadding(dp(18), dp(18), dp(18), dp(18));
+        box.setBackground(NativeUi.shape(this, Color.WHITE, 22, NativeUi.BORDER));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, 0, 0, dp(12));
         box.setLayoutParams(params);
@@ -244,13 +248,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void render() {
+        for (int i = 0; i < nav.getChildCount(); i++) {
+            View item = nav.getChildAt(i);
+            NativeUi.selectNav(item, tab.equals(item.getTag()));
+        }
         if (data == null) {
             showError("尚未连接工作台。连接成功后会在这里显示原生打卡、记录和日程页面。");
             return;
         }
         content.removeAllViews();
+        elapsedView = null;
+        elapsedStartedAt = "";
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
         LinearLayout body = page();
         scroll.addView(body);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
@@ -258,46 +269,60 @@ public class MainActivity extends AppCompatActivity {
         else if ("schedule".equals(tab)) renderSchedules(body);
         else if ("me".equals(tab)) renderMe(body);
         else renderHome(body);
+        if (!tab.equals(lastRenderedTab)) NativeUi.enter(body);
+        lastRenderedTab = tab;
     }
 
     private void renderHome(LinearLayout body) {
         JSONObject user = data.optJSONObject("user");
         String name = user == null ? "你好" : user.optString("displayName", "你好");
-        TextView greeting = text("今天好，" + name, 27, INK);
-        greeting.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        body.addView(greeting);
-        TextView day = text(new SimpleDateFormat("M月d日 EEEE", Locale.CHINA).format(new Date()), 14, MUTED);
-        day.setPadding(0, dp(4), 0, dp(16));
+        Calendar clock = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+        int hour = clock.get(Calendar.HOUR_OF_DAY);
+        String greeting = hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
+        SimpleDateFormat date = new SimpleDateFormat("M月d日 EEEE", Locale.CHINA);
+        date.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        TextView day = text(date.format(new Date()) + " · 北京时间", 12, MUTED);
         body.addView(day);
+        TextView heading = text(greeting + "，" + name, 28, INK);
+        heading.setTypeface(NativeUi.DISPLAY);
+        heading.setMaxLines(2);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.setPadding(0, dp(6), 0, dp(4));
+        body.addView(heading);
+        TextView subtitle = text("今天的事，一件一件慢慢做好。", 13, MUTED);
+        subtitle.setPadding(0, 0, 0, dp(18));
+        body.addView(subtitle);
 
         addCheckinCard(body);
         addQuickActions(body);
 
         JSONObject summary = data.optJSONObject("summary");
         LinearLayout overview = card();
-        TextView overviewTitle = text("今天的工作台", 17, INK);
-        overviewTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        TextView overviewTitle = text("今天的小进展", 16, INK);
+        overviewTitle.setTypeface(NativeUi.MEDIUM);
         overview.addView(overviewTitle);
-        String summaryText = (summary == null ? 0 : summary.optInt("todayRecords")) + " 条记录  ·  "
-            + (summary == null ? 0 : summary.optInt("upcomingSchedules")) + " 个近期日程  ·  "
-            + (summary == null ? 0 : summary.optInt("inboxPending")) + " 条待整理";
-        TextView numbers = text(summaryText, 13, MUTED);
-        numbers.setPadding(0, dp(8), 0, 0);
+        LinearLayout numbers = new LinearLayout(this);
+        numbers.setPadding(0, dp(10), 0, 0);
+        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("todayRecords"),
+            "今日记录", () -> selectTab("records")), new LinearLayout.LayoutParams(0, -2, 1));
+        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("upcomingSchedules"),
+            "近期日程", () -> selectTab("schedule")), new LinearLayout.LayoutParams(0, -2, 1));
+        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("inboxPending"),
+            "待整理", null), new LinearLayout.LayoutParams(0, -2, 1));
         overview.addView(numbers);
         body.addView(overview);
 
         sectionTitle(body, "近期日程");
         JSONArray schedules = data.optJSONArray("schedules");
         if (schedules == null || schedules.length() == 0) {
-            emptyCard(body, "还没有日程", "安排一件接下来要做的事。", "新增日程", this::showScheduleDialog);
+            emptyCard(body, "给接下来的时间留个位置", "会议、学习或出行，都可以从这里开始。", "安排日程", this::showScheduleDialog);
         } else {
             for (int i = 0; i < Math.min(3, schedules.length()); i++) addSchedule(body, schedules.optJSONObject(i));
         }
-
         sectionTitle(body, "最近记录");
         JSONArray records = data.optJSONArray("records");
         if (records == null || records.length() == 0) {
-            emptyCard(body, "还没有记录", "从一条简短的想法开始。", "写一条", this::showRecordDialog);
+            emptyCard(body, "值得记住的，随手记下来", "不用写很长，一句话也可以。", "写一条记录", this::showRecordDialog);
         } else {
             for (int i = 0; i < Math.min(3, records.length()); i++) addRecord(body, records.optJSONObject(i));
         }
@@ -306,41 +331,55 @@ public class MainActivity extends AppCompatActivity {
     private void addCheckinCard(LinearLayout body) {
         JSONObject active = data.optJSONObject("activeCheckin");
         LinearLayout box = card();
-        box.setBackground(background(active == null ? PALE_GREEN : Color.rgb(224, 238, 230), 24));
-        TextView eyebrow = text(active == null ? "专注打卡" : "正在打卡", 13, GREEN);
-        eyebrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        box.setBackground(NativeUi.focusBackground(this));
+        TextView eyebrow = text(active == null ? "FOCUS / 专注打卡" : "FOCUS / 正在进行", 12, 0xFFD7E5D7);
+        eyebrow.setTypeface(NativeUi.MEDIUM);
         box.addView(eyebrow);
-        TextView title = text(active == null ? "开始一段专注时间" : active.optString("title", "专注打卡"), 22, INK);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(0, dp(6), 0, dp(5));
-        box.addView(title);
+        LinearLayout hero = new LinearLayout(this);
+        hero.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout words = NativeUi.column(this);
+        TextView title = text(active == null ? "给自己一段\n专注的时间" : active.optString("title", "专注打卡"), 24, Color.WHITE);
+        title.setTypeface(NativeUi.DISPLAY);
+        title.setMaxLines(3);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.setPadding(0, dp(10), 0, dp(7));
+        words.addView(title);
         elapsedStartedAt = active == null ? "" : active.optString("happenedAt");
-        elapsedView = text(active == null ? "联网保存成功后，与电脑工作台共用记录。" : elapsedLabel(elapsedStartedAt), 13, MUTED);
-        box.addView(elapsedView);
-        Button button = primaryButton(active == null ? "开始打卡" : "结束并保存");
+        elapsedView = text(active == null ? "从一件小事开始，不必着急。" : elapsedLabel(elapsedStartedAt),
+            active == null ? 13 : 21, 0xFFE4EEE3);
+        if (active != null) elapsedView.setTypeface(NativeUi.MEDIUM);
+        words.addView(elapsedView);
+        hero.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        NativeUi.FocusArt art = new NativeUi.FocusArt(this);
+        LinearLayout.LayoutParams artParams = new LinearLayout.LayoutParams(dp(80), dp(80));
+        artParams.setMargins(dp(8), 0, 0, 0);
+        hero.addView(art, artParams);
+        box.addView(hero);
+        Button button = primaryButton(active == null ? "开始专注" : "结束并保存");
+        NativeUi.decorateButton(button, AMBER, INK, Color.TRANSPARENT);
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) button.getLayoutParams();
-        params.setMargins(0, dp(14), 0, 0);
+        params.setMargins(0, dp(16), 0, 0);
         button.setLayoutParams(params);
         button.setOnClickListener(v -> {
             if (active == null) showStartCheckinDialog();
             else showStopCheckinDialog(active);
         });
         box.addView(button);
+        TextView cloud = text("联网保存成功后，与工作台共用记录", 11, 0xFFD7E5D7);
+        cloud.setPadding(0, dp(10), 0, 0);
+        box.addView(cloud);
         body.addView(box);
     }
 
     private void addQuickActions(LinearLayout body) {
-        sectionTitle(body, "快捷操作");
+        sectionTitle(body, "快捷入口");
         LinearLayout first = quickRow();
-        JSONObject active = data.optJSONObject("activeCheckin");
-        first.addView(quickAction(active == null ? "开始打卡" : "结束打卡", "记录专注时间", GREEN,
-            () -> { if (active == null) showStartCheckinDialog(); else showStopCheckinDialog(active); }), quickParams(true));
-        first.addView(quickAction("写记录", "记下此刻", BLUE, this::showRecordDialog), quickParams(false));
+        first.addView(quickAction("AI 帮我安排", "说一句，帮你整理", "ai", GREEN, this::showAi), quickParams(true));
+        first.addView(quickAction("写一条记录", "记下想法与生活", "records", BLUE, this::showRecordDialog), quickParams(false));
         body.addView(first);
-
         LinearLayout second = quickRow();
-        second.addView(quickAction("安排日程", "规划时间", AMBER, this::showScheduleDialog), quickParams(true));
-        second.addView(quickAction("收件箱", "稍后整理", ROSE, this::showInboxDialog), quickParams(false));
+        second.addView(quickAction("安排日程", "把计划放进时间里", "schedule", GREEN, this::showScheduleDialog), quickParams(true));
+        second.addView(quickAction("随手收集", "先记下，稍后整理", "inbox", ROSE, this::showInboxDialog), quickParams(false));
         body.addView(second);
     }
 
@@ -351,70 +390,120 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private LinearLayout.LayoutParams quickParams(boolean left) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(104), 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
         params.setMargins(left ? 0 : dp(6), 0, left ? dp(6) : 0, dp(12));
         return params;
     }
 
-    private View quickAction(String title, String hint, int accent, Runnable action) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(dp(16), dp(14), dp(14), dp(14));
-        item.setBackground(background(Color.WHITE, 20));
+    private View quickAction(String title, String hint, String icon, int accent, Runnable action) {
+        LinearLayout item = NativeUi.column(this);
+        item.setMinimumHeight(dp(120));
+        item.setPadding(dp(15), dp(14), dp(14), dp(14));
+        item.setBackground(NativeUi.touch(this, Color.WHITE, 20, NativeUi.BORDER));
         item.setOnClickListener(v -> action.run());
-        TextView dot = text("●", 12, accent);
-        item.addView(dot);
-        TextView label = text(title, 17, INK);
-        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        label.setPadding(0, dp(4), 0, dp(2));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout badge = new FrameLayout(this);
+        badge.setBackground(NativeUi.shape(this, NativeUi.alpha(accent, 22), 11));
+        badge.addView(new NativeUi.IconView(this, icon, accent),
+            new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
+        top.addView(badge, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        View space = new View(this);
+        top.addView(space, new LinearLayout.LayoutParams(0, 1, 1));
+        top.addView(new NativeUi.IconView(this, "arrow", MUTED), new LinearLayout.LayoutParams(dp(16), dp(16)));
+        item.addView(top);
+        TextView label = text(title, 16, INK);
+        label.setTypeface(NativeUi.MEDIUM);
+        label.setPadding(0, dp(9), 0, dp(3));
         item.addView(label);
         item.addView(text(hint, 12, MUTED));
         return item;
     }
 
     private void renderRecords(LinearLayout body) {
-        pageTitle(body, "生活记录", "手机和电脑使用同一份数据。", "写一条记录", this::showRecordDialog);
+        pageTitle(body, "生活记录", "记下生活的片段，与工作台共用记录。", "写一条记录", this::showRecordDialog);
         JSONArray records = data.optJSONArray("records");
         if (records == null || records.length() == 0) {
-            emptyCard(body, "这里还没有内容", "记录想法、生活片段或今天完成的事情。", "开始记录", this::showRecordDialog);
+            emptyCard(body, "从今天的第一条开始", "一个想法、一段经历，或者今天做成的事。", "开始记录", this::showRecordDialog);
         } else {
+            sectionTitle(body, "最近同步的记录");
             for (int i = 0; i < records.length(); i++) addRecord(body, records.optJSONObject(i));
         }
     }
 
     private void renderSchedules(LinearLayout body) {
-        pageTitle(body, "日程安排", "新增后会自动同步到电脑工作台。", "新增日程", this::showScheduleDialog);
+        pageTitle(body, "日程安排", "给重要的事留出时间。日期均按北京时间显示。", "新增日程", this::showScheduleDialog);
         JSONArray schedules = data.optJSONArray("schedules");
         if (schedules == null || schedules.length() == 0) {
-            emptyCard(body, "近期没有安排", "添加一次会议、出行或个人计划。", "安排日程", this::showScheduleDialog);
+            emptyCard(body, "时间空着，也是一种可能", "安排一次学习、会议或出行，保存后同步到工作台。", "安排日程", this::showScheduleDialog);
         } else {
-            for (int i = 0; i < schedules.length(); i++) addSchedule(body, schedules.optJSONObject(i));
+            String lastDay = "";
+            Calendar today = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+            SimpleDateFormat keyFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+            keyFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            String todayKey = keyFormat.format(today.getTime());
+            today.add(Calendar.DAY_OF_MONTH, 1);
+            String tomorrowKey = keyFormat.format(today.getTime());
+            for (int i = 0; i < schedules.length(); i++) {
+                JSONObject item = schedules.optJSONObject(i);
+                if (item == null) continue;
+                String key = visualDateLabel(item.optString("startAt"), "yyyy-MM-dd", "日期待定");
+                if (!key.equals(lastDay)) {
+                    String day = visualDateLabel(item.optString("startAt"), "M月d日 EEEE", "日期待定");
+                    sectionTitle(body, (key.equals(todayKey) ? "今天 · " : key.equals(tomorrowKey) ? "明天 · " : "") + day);
+                    lastDay = key;
+                }
+                addSchedule(body, item);
+            }
         }
     }
 
     private void renderMe(LinearLayout body) {
-        sectionTitle(body, "我的 App");
+        TextView heading = text("我的日常屿", 28, INK);
+        heading.setTypeface(NativeUi.DISPLAY);
+        heading.setPadding(0, 0, 0, dp(16));
+        body.addView(heading);
         JSONObject user = data.optJSONObject("user");
+        String displayName = user == null ? "已连接" : user.optString("displayName", "已连接");
         LinearLayout account = card();
-        TextView name = text(user == null ? "已连接" : user.optString("displayName", "已连接"), 20, INK);
-        name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        account.addView(name);
-        account.addView(text(user == null ? "" : user.optString("email"), 13, MUTED));
-        TextView version = text("原生安卓开发版 · v1.8.2", 13, GREEN);
-        version.setPadding(0, dp(8), 0, 0);
+        LinearLayout identity = new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        TextView avatar = text(displayName.isEmpty() ? "我" : displayName.substring(0, displayName.offsetByCodePoints(0, 1)), 22, GREEN);
+        avatar.setTypeface(NativeUi.DISPLAY);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setBackground(NativeUi.shape(this, PALE_GREEN, 18));
+        identity.addView(avatar, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        LinearLayout profile = NativeUi.column(this);
+        profile.setPadding(dp(13), 0, 0, 0);
+        TextView name = text(displayName, 20, INK);
+        name.setTypeface(NativeUi.MEDIUM);
+        profile.addView(name);
+        TextView email = text(user == null ? "" : user.optString("email"), 12, MUTED);
+        email.setMaxLines(2);
+        profile.addView(email);
+        identity.addView(profile, new LinearLayout.LayoutParams(0, -2, 1));
+        account.addView(identity);
+        TextView version = text("原生安卓预览版 · " + appVersion(), 12, GREEN);
+        version.setPadding(0, dp(14), 0, 0);
         account.addView(version);
         body.addView(account);
+
+        sectionTitle(body, "连接与同步");
         LinearLayout binding = card();
-        binding.addView(text("绑定的工作台", 16, INK));
-        binding.addView(text(Uri.parse(baseUrl).getHost(), 12, MUTED));
-        binding.addView(text("使用授权账号访问云端数据，不把 AI 密钥放进 App。", 12, GREEN));
+        TextView bindingTitle = text("绑定的工作台", 16, INK);
+        bindingTitle.setTypeface(NativeUi.MEDIUM);
+        binding.addView(bindingTitle);
+        TextView host = text(Uri.parse(baseUrl).getHost(), 13, MUTED);
+        host.setPadding(0, dp(7), 0, dp(8));
+        binding.addView(host);
+        binding.addView(text("账号授权访问云端数据，AI 密钥不保存在 App 里。", 12, GREEN));
         Button changeBinding = secondaryButton("更换工作台");
         changeBinding.setOnClickListener(v -> showBinding());
         binding.addView(changeBinding);
         body.addView(binding);
         if (saveOutcomeUnknown) {
             LinearLayout uncertain = card();
+            uncertain.setBackground(NativeUi.shape(this, 0xFFFFF3DF, 22, 0xFFEAD5B5));
             uncertain.addView(text("有一次保存结果待核实", 17, INK));
             uncertain.addView(text("请先同步查看。网络超时不代表没有保存，App 不会自动重发。", 13, MUTED));
             Button acknowledge = secondaryButton("我已核对云端结果");
@@ -425,16 +514,20 @@ public class MainActivity extends AppCompatActivity {
             uncertain.addView(acknowledge);
             body.addView(uncertain);
         }
-
         JSONObject summary = data.optJSONObject("summary");
         LinearLayout stats = card();
-        stats.addView(text("云端共有 " + (summary == null ? 0 : summary.optInt("totalRecords")) + " 条记录", 16, INK));
-        TextView pending = text("收件箱待整理 " + (summary == null ? 0 : summary.optInt("inboxPending")) + " 条", 14, MUTED);
-        pending.setPadding(0, dp(7), 0, dp(5));
-        stats.addView(pending);
-        stats.addView(text("最近同步：" + pretty(data.optString("serverTime")), 13, MUTED));
+        TextView statsTitle = text("我的数据", 16, INK);
+        statsTitle.setTypeface(NativeUi.MEDIUM);
+        stats.addView(statsTitle);
+        LinearLayout row = new LinearLayout(this);
+        row.setPadding(0, dp(10), 0, dp(10));
+        row.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("totalRecords"),
+            "云端记录", () -> selectTab("records")), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("inboxPending"),
+            "收件箱待整理", null), new LinearLayout.LayoutParams(0, -2, 1));
+        stats.addView(row);
+        stats.addView(text("最近同步：" + pretty(data.optString("serverTime")), 12, MUTED));
         body.addView(stats);
-
         Button refresh = secondaryButton("立即同步");
         refresh.setOnClickListener(v -> sync());
         body.addView(refresh);
@@ -458,44 +551,63 @@ public class MainActivity extends AppCompatActivity {
         body.addView(relink);
     }
 
+    private String appVersion() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (Exception ignored) { return "开发版"; }
+    }
+
     private void pageTitle(LinearLayout body, String title, String hint, String action, Runnable listener) {
-        TextView heading = text(title, 27, INK);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        TextView eyebrow = text("records".equals(tab) ? "LIFE / 记录" : "PLANNER / 日程", 11, GREEN);
+        body.addView(eyebrow);
+        TextView heading = text(title, 28, INK);
+        heading.setTypeface(NativeUi.DISPLAY);
+        heading.setPadding(0, dp(6), 0, dp(6));
         body.addView(heading);
         TextView subtitle = text(hint, 13, MUTED);
-        subtitle.setPadding(0, dp(4), 0, dp(14));
+        subtitle.setPadding(0, 0, 0, dp(12));
         body.addView(subtitle);
         Button button = primaryButton(action);
         button.setOnClickListener(v -> listener.run());
         body.addView(button);
-        View spacer = new View(this);
-        body.addView(spacer, new LinearLayout.LayoutParams(1, dp(8)));
     }
 
     private void sectionTitle(LinearLayout body, String title) {
-        TextView heading = text(title, 19, INK);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        heading.setPadding(0, dp(11), 0, dp(10));
+        TextView heading = text(title, 18, INK);
+        heading.setTypeface(NativeUi.MEDIUM);
+        heading.setPadding(dp(2), dp(12), 0, dp(12));
         body.addView(heading);
     }
 
     private void addRecord(LinearLayout body, JSONObject record) {
         if (record == null) return;
         LinearLayout item = card();
+        item.setBackground(NativeUi.touch(this, Color.WHITE, 22, NativeUi.BORDER));
         String title = record.optString("title");
         String contentText = record.optString("content");
         String display = title.isEmpty() ? (contentText.isEmpty() ? "一条记录" : contentText) : title;
+        String kind = record.optString("kind", "life");
+        String category = "checkin".equals(kind) ? "专注" : "income".equals(kind) ? "收入"
+            : ("life".equals(kind) || "event".equals(kind)) ? "生活" : "note".equals(kind) ? "随记" : kind;
+        LinearLayout metadata = new LinearLayout(this);
+        metadata.setGravity(Gravity.CENTER_VERTICAL);
+        metadata.addView(NativeUi.badge(this, category, PALE_GREEN, GREEN));
+        TextView stamp = text(pretty(record.optString("happenedAt")), 12, MUTED);
+        stamp.setPadding(dp(10), 0, 0, 0);
+        metadata.addView(stamp, new LinearLayout.LayoutParams(0, -2, 1));
+        item.addView(metadata);
         TextView heading = text(display, 17, INK);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setTypeface(NativeUi.MEDIUM);
         heading.setMaxLines(2);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.setPadding(0, dp(12), 0, 0);
         item.addView(heading);
         if (!title.isEmpty() && !contentText.isEmpty()) {
             TextView excerpt = text(contentText, 14, MUTED);
             excerpt.setMaxLines(3);
-            excerpt.setPadding(0, dp(7), 0, dp(8));
+            excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            excerpt.setPadding(0, dp(7), 0, 0);
             item.addView(excerpt);
         }
-        item.addView(text(record.optString("kind", "生活") + "  ·  " + pretty(record.optString("happenedAt")), 12, GREEN));
         item.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(display)
             .setMessage(contentText + "\n\n" + pretty(record.optString("happenedAt")))
             .setPositiveButton("关闭", null).show());
@@ -505,27 +617,96 @@ public class MainActivity extends AppCompatActivity {
     private void addSchedule(LinearLayout body, JSONObject schedule) {
         if (schedule == null) return;
         LinearLayout item = card();
-        TextView heading = text(schedule.optString("title", "日程"), 17, INK);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        item.addView(heading);
-        TextView time = text(pretty(schedule.optString("startAt")) + "\n结束：" + pretty(schedule.optString("endAt"))
-            + "  ·  " + schedule.optString("status", "计划中"), 13, GREEN);
-        time.setPadding(0, dp(6), 0, 0);
-        item.addView(time);
-        String place = schedule.optString("place");
-        if (!place.isEmpty()) item.addView(text(place, 13, MUTED));
-        String note = schedule.optString("note");
-        if (!note.isEmpty()) item.addView(text(note, 13, MUTED));
+        item.setOrientation(LinearLayout.HORIZONTAL);
+        item.setBackground(NativeUi.touch(this, Color.WHITE, 22, NativeUi.BORDER));
+        LinearLayout date = NativeUi.column(this);
+        date.setGravity(Gravity.CENTER);
+        date.setPadding(dp(6), dp(10), dp(6), dp(10));
+        date.setBackground(NativeUi.shape(this, PALE_GREEN, 15));
+        date.addView(text(visualDateLabel(schedule.optString("startAt"), "M月", "日期"), 12, GREEN));
+        TextView day = text(visualDateLabel(schedule.optString("startAt"), "d", "待定"), 29, INK);
+        day.setTypeface(NativeUi.DISPLAY);
+        date.addView(day);
+        date.addView(text(visualDateLabel(schedule.optString("startAt"), "EEE", ""), 11, GREEN));
+        LinearLayout.LayoutParams dateParams = new LinearLayout.LayoutParams(dp(60), -2);
+        dateParams.setMargins(0, 0, dp(14), 0);
+        item.addView(date, dateParams);
+        LinearLayout details = NativeUi.column(this);
+        TextView title = text(schedule.optString("title", "日程"), 17, INK);
+        title.setTypeface(NativeUi.MEDIUM);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        details.addView(title);
+        String start = schedule.optString("startAt"), end = schedule.optString("endAt");
+        String startDay = visualDateLabel(start, "yyyy-MM-dd", "");
+        String endDay = visualDateLabel(end, "yyyy-MM-dd", "");
+        String range = visualDateLabel(start, "HH:mm", pretty(start)) + " - "
+            + visualDateLabel(end, !startDay.isEmpty() && startDay.equals(endDay) ? "HH:mm" : "M月d日 HH:mm", pretty(end));
+        TextView time = text(range, 14, GREEN);
+        time.setPadding(0, dp(6), 0, dp(4));
+        details.addView(time);
+        String rawStatus = schedule.optString("status", "计划中");
+        String status = ("planned".equals(rawStatus) || "pending".equals(rawStatus)) ? "计划中"
+            : ("done".equals(rawStatus) || "completed".equals(rawStatus)) ? "已完成"
+            : ("cancelled".equals(rawStatus) || "canceled".equals(rawStatus)) ? "已取消"
+            : "active".equals(rawStatus) ? "进行中" : rawStatus;
+        details.addView(text(status + " · 北京时间", 11, MUTED));
+        String place = schedule.optString("place"), note = schedule.optString("note");
+        if (!place.isEmpty()) {
+            TextView location = text("地点：" + place, 13, MUTED);
+            location.setMaxLines(2);
+            location.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            location.setPadding(0, dp(6), 0, 0);
+            details.addView(location);
+        }
+        if (!note.isEmpty()) {
+            TextView description = text(note, 13, MUTED);
+            description.setMaxLines(2);
+            description.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            description.setPadding(0, dp(5), 0, 0);
+            details.addView(description);
+        }
+        item.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+        item.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(schedule.optString("title", "日程"))
+            .setMessage(pretty(start) + "\n结束：" + pretty(end) + "\n状态：" + status
+                + (place.isEmpty() ? "" : "\n地点：" + place) + (note.isEmpty() ? "" : "\n\n" + note))
+            .setPositiveButton("关闭", null).show());
         body.addView(item);
+    }
+
+    private String visualDateLabel(String raw, String pattern, String fallback) {
+        if (raw == null || raw.isEmpty()) return fallback;
+        String normalized = raw.endsWith("Z") ? raw.substring(0, raw.length() - 1) + "+0000"
+            : raw.replaceAll("([+-]\\d\\d):(\\d\\d)$", "$1$2");
+        for (String source : new String[] {"yyyy-MM-dd'T'HH:mm:ss.SSSZ", "yyyy-MM-dd'T'HH:mm:ssZ",
+                "yyyy-MM-dd'T'HH:mmZ", "yyyy-MM-dd HH:mm:ss"}) {
+            SimpleDateFormat parser = new SimpleDateFormat(source, Locale.US);
+            parser.setLenient(false);
+            parser.setTimeZone(TimeZone.getTimeZone("UTC"));
+            java.text.ParsePosition position = new java.text.ParsePosition(0);
+            Date value = parser.parse(normalized, position);
+            if (value == null || position.getIndex() != normalized.length()) continue;
+            SimpleDateFormat display = new SimpleDateFormat(pattern, Locale.CHINA);
+            display.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            return display.format(value);
+        }
+        return fallback;
     }
 
     private void emptyCard(LinearLayout body, String title, String hint, String action, Runnable listener) {
         LinearLayout empty = card();
+        empty.setGravity(Gravity.CENTER_HORIZONTAL);
+        empty.setBackground(NativeUi.shape(this, 0xFFF0F4EC, 22, NativeUi.BORDER));
+        empty.addView(new NativeUi.IconView(this, "schedule".equals(tab) ? "schedule" : "records", GREEN),
+            new LinearLayout.LayoutParams(dp(34), dp(34)));
         TextView heading = text(title, 17, INK);
-        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setTypeface(NativeUi.MEDIUM);
+        heading.setGravity(Gravity.CENTER);
+        heading.setPadding(0, dp(12), 0, dp(6));
         empty.addView(heading);
         TextView description = text(hint, 13, MUTED);
-        description.setPadding(0, dp(6), 0, dp(12));
+        description.setGravity(Gravity.CENTER);
+        description.setPadding(0, 0, 0, dp(12));
         empty.addView(description);
         Button button = secondaryButton(action);
         button.setOnClickListener(v -> listener.run());
@@ -534,52 +715,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Button primaryButton(String value) {
-        Button button = new Button(this);
-        button.setText(value);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(15);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setAllCaps(false);
-        button.setBackground(background(GREEN, 17));
-        button.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(52)));
-        return button;
+        return NativeUi.button(this, value, true);
     }
 
     private Button secondaryButton(String value) {
-        Button button = new Button(this);
-        button.setText(value);
-        button.setTextColor(INK);
-        button.setTextSize(15);
-        button.setAllCaps(false);
-        button.setBackground(background(Color.WHITE, 17));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
-        params.setMargins(0, 0, 0, dp(10));
-        button.setLayoutParams(params);
-        return button;
+        return NativeUi.button(this, value, false);
     }
 
     private EditText input(String hint, boolean multiline) {
         EditText edit = new EditText(this);
+        NativeUi.styleInput(edit);
         edit.setHint(hint);
-        edit.setTextColor(INK);
-        edit.setHintTextColor(Color.rgb(145, 154, 149));
-        edit.setTextSize(16);
-        edit.setPadding(dp(14), dp(12), dp(14), dp(12));
-        edit.setBackground(background(Color.rgb(244, 246, 242), 14));
         if (multiline) {
             edit.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
             edit.setMinLines(4);
+            edit.setGravity(Gravity.TOP | Gravity.START);
         } else edit.setSingleLine(true);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(0, 0, 0, dp(12));
+        params.setMargins(0, dp(5), 0, dp(12));
         edit.setLayoutParams(params);
         return edit;
     }
 
     private LinearLayout dialogForm() {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(22), dp(8), dp(22), 0);
+        LinearLayout form = NativeUi.column(this);
+        form.setPadding(dp(22), dp(12), dp(22), dp(8));
         return form;
     }
 

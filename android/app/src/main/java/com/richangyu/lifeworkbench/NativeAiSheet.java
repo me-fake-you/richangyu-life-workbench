@@ -36,7 +36,8 @@ final class NativeAiSheet {
     private String pendingSource = "", previousDraft = "";
     private JSONObject draft;
     private AlertDialog dialog;
-    private LinearLayout conversation, previewBox;
+    private LinearLayout conversation, previewBox, settingsBody;
+    private Button settingsToggle;
     private EditText question;
     private TextView status, expiry;
     private CheckBox finance, calendar;
@@ -46,7 +47,7 @@ final class NativeAiSheet {
     private Button send, confirm, discard, choose, refresh;
     private boolean ready, busy, writing, closed, saved, planDraft;
     private long cooldownUntil;
-    private static final int INK = Color.rgb(29,45,40), GREEN = Color.rgb(35,103,77);
+    private static final int INK = NativeUi.INK, GREEN = NativeUi.FOREST;
     private final Runnable expiryTick = new Runnable() {
         @Override public void run() {
             if (closed) return;
@@ -60,41 +61,110 @@ final class NativeAiSheet {
     boolean isWriting() { return writing; }
     void show() {
         LinearLayout page = column();
-        page.setPadding(dp(18), dp(12), dp(18), dp(18));
-        page.setBackgroundColor(Color.rgb(248,244,235));
-        page.addView(label("\u8bf4\u4e00\u53e5\uff0c\u6574\u7406\u597d\u4eca\u5929", 23, true));
-        page.addView(label("\u8fd9\u662f\u539f\u751f App \u9875\u9762\u3002AI \u53ea\u751f\u6210\u5efa\u8bae\u548c\u8349\u7a3f\uff0c\u786e\u8ba4\u540e\u624d\u4f1a\u5199\u5165\u5de5\u4f5c\u53f0\u3002", 13, false));
-        mode = new RadioGroup(activity); mode.setOrientation(RadioGroup.HORIZONTAL);
-        RadioButton chat = new RadioButton(activity); chat.setId(View.generateViewId()); chat.setText("\u804a\u5929\u8bb0\u4e8b");
-        RadioButton plan = new RadioButton(activity); planId = View.generateViewId(); plan.setId(planId); plan.setText("\u5236\u5b9a / \u8c03\u6574\u8ba1\u5212");
-        mode.addView(chat); mode.addView(plan); mode.check(chat.getId()); page.addView(mode);
+        page.setPadding(dp(18), dp(18), dp(18), dp(18));
+        page.setBackground(NativeUi.pageBackground());
+
+        LinearLayout titleRow = new LinearLayout(activity);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        titleRow.addView(new NativeUi.IconView(activity, "ai", GREEN), new LinearLayout.LayoutParams(dp(25), dp(25)));
+        TextView brand = label("AI \u751f\u6d3b\u52a9\u624b", 14, true);
+        brand.setPadding(dp(9), 0, 0, 0);
+        titleRow.addView(brand);
+        page.addView(titleRow);
+        TextView heading = label("\u8bf4\u4e00\u53e5\uff0c\n\u6574\u7406\u597d\u4eca\u5929", 28, true);
+        heading.setTypeface(NativeUi.DISPLAY);
+        heading.setPadding(0, dp(12), 0, dp(8));
+        page.addView(heading);
+        page.addView(label("AI \u5148\u6574\u7406\u6210\u8349\u7a3f\uff0c\u4f60\u786e\u8ba4\u540e\u624d\u4f1a\u4fdd\u5b58\u3002", 13, false));
+
+        mode = new RadioGroup(activity);
+        mode.setOrientation(RadioGroup.HORIZONTAL);
+        mode.setBackground(NativeUi.shape(activity, Color.WHITE, 14, NativeUi.BORDER));
+        mode.setPadding(dp(6), dp(3), dp(6), dp(3));
+        RadioButton chat = new RadioButton(activity);
+        chat.setId(View.generateViewId()); chat.setText("\u804a\u5929\u8bb0\u4e8b");
+        RadioButton plan = new RadioButton(activity);
+        planId = View.generateViewId(); plan.setId(planId); plan.setText("\u8ba1\u5212\u8c03\u6574");
+        for (RadioButton item : new RadioButton[] {chat, plan}) {
+            item.setTextSize(14); item.setTextColor(INK); item.setTypeface(NativeUi.MEDIUM);
+            item.setMinHeight(dp(48));
+            item.setButtonTintList(new android.content.res.ColorStateList(
+                new int[][] {{-android.R.attr.state_enabled}, {}}, new int[] {NativeUi.MUTED, GREEN}));
+            mode.addView(item, new RadioGroup.LayoutParams(0, -2, 1));
+        }
+        mode.check(chat.getId());
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(-1, -2);
+        modeParams.setMargins(0, dp(10), 0, dp(12));
+        page.addView(mode, modeParams);
+
+        LinearLayout composer = column();
+        composer.setPadding(dp(16), dp(10), dp(16), dp(12));
+        composer.setBackground(NativeUi.shape(activity, Color.WHITE, 22, NativeUi.BORDER));
+        composer.addView(label("\u4eca\u5929\u6709\u4ec0\u4e48\u60f3\u505a\u7684\uff1f", 15, true));
+        question = new EditText(activity);
+        NativeUi.styleInput(question);
+        question.setHint("\u6bd4\u5982\uff1a\u660e\u5929\u4e0b\u5348 3 \u70b9\u5b66\u4e60\u4e24\u5c0f\u65f6\uff0c\u5e2e\u6211\u5b89\u6392\u4e00\u4e0b\u3002");
+        question.setMinLines(3); question.setMaxLines(6);
+        question.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        question.setFilters(new InputFilter[] {new InputFilter.LengthFilter(800)});
+        question.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        composer.addView(question, new LinearLayout.LayoutParams(-1, -2));
+        send = button("\u53d1\u9001\u7ed9 AI", true);
+        send.setOnClickListener(v -> generate());
+        composer.addView(send);
+        page.addView(composer);
+
+        settingsToggle = button("\u53c2\u8003\u8303\u56f4\u4e0e\u6743\u9650 \u00b7 \u53ef\u9009", false);
+        page.addView(settingsToggle);
+        settingsBody = column();
+        settingsBody.setPadding(dp(14), dp(8), dp(14), dp(12));
+        settingsBody.setBackground(NativeUi.shape(activity, Color.WHITE, 18, NativeUi.BORDER));
+        settingsBody.addView(label("\u5b89\u6392\u65f6\u95f4\u8303\u56f4", 14, true));
         range = new Spinner(activity);
         ArrayAdapter<String> ranges = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item,
             new String[] {"\u4eca\u5929", "\u672a\u6765 7 \u5929", "\u672a\u6765 30 \u5929"});
         ranges.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        range.setAdapter(ranges); range.setSelection(1); page.addView(range);
-        calendar = new CheckBox(activity); calendar.setText("\u672c\u6b21\u8ba9 AI \u53c2\u8003\u6211\u9009\u4e2d\u7684\u65e5\u7a0b"); page.addView(calendar);
-        choose = button("\u9009\u62e9\u65e5\u7a0b\uff08\u6700\u591a 8 \u9879\uff09", false); page.addView(choose);
-        choose.setOnClickListener(v -> chooseSchedules());
+        range.setAdapter(ranges); range.setSelection(1); range.setMinimumHeight(dp(48));
+        settingsBody.addView(range, new LinearLayout.LayoutParams(-1, -2));
+        calendar = new CheckBox(activity);
+        calendar.setText("\u672c\u6b21\u53c2\u8003\u6211\u4e3b\u52a8\u9009\u4e2d\u7684\u65e5\u7a0b");
+        calendar.setMinHeight(dp(48)); calendar.setTextColor(INK); calendar.setTextSize(13);
+        settingsBody.addView(calendar);
+        choose = button("\u9009\u62e9\u65e5\u7a0b\uff08\u6700\u591a 8 \u9879\uff09", false);
+        settingsBody.addView(choose); choose.setOnClickListener(v -> chooseSchedules());
         calendar.setOnCheckedChangeListener((v, checked) -> updateControls());
-        finance = new CheckBox(activity); finance.setText("\u540c\u610f\u672c\u6b21\u5904\u7406\u6211\u63d0\u4f9b\u7684\u91d1\u989d / \u6536\u5165\u4fe1\u606f"); page.addView(finance);
+        finance = new CheckBox(activity);
+        finance.setText("\u540c\u610f\u672c\u6b21\u5904\u7406\u6211\u63d0\u4f9b\u7684\u91d1\u989d / \u6536\u5165\u4fe1\u606f");
+        finance.setMinHeight(dp(48)); finance.setTextColor(INK); finance.setTextSize(13);
+        settingsBody.addView(finance);
         finance.setOnCheckedChangeListener((v, checked) -> updateControls());
-        status = label("\u6b63\u5728\u8bfb\u53d6 AI \u8fde\u63a5\u72b6\u6001\u2026", 13, false); page.addView(status);
-        refresh = button("\u91cd\u65b0\u8bfb\u53d6\u8fde\u63a5\u72b6\u6001", false); refresh.setOnClickListener(v -> fetchStatus()); page.addView(refresh);
-        question = new EditText(activity);
-        question.setHint("\u4f8b\u5982\uff1a\u4eca\u5929\u517c\u804c\u7ed3\u675f\u4e86\uff0c\u5e2e\u6211\u8bb0\u5f55\uff1b\u660e\u5929\u4e0b\u5348 3 \u70b9\u5b66\u4e60\u4e24\u5c0f\u65f6\u3002");
-        question.setTextColor(INK); question.setMinLines(3); question.setMaxLines(6);
-        question.setFilters(new InputFilter[] {new InputFilter.LengthFilter(800)});
-        question.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        page.addView(question, new LinearLayout.LayoutParams(-1, -2));
-        send = button("\u53d1\u9001\u7ed9 AI", true); send.setOnClickListener(v -> generate()); page.addView(send);
+        settingsBody.addView(label("\u9ed8\u8ba4\u4e0d\u5206\u4eab\u65e5\u7a0b\uff0c\u4e0d\u5f00\u542f\u91d1\u989d\u6388\u6743\uff1b\u4e0d\u8981\u63d0\u4ea4\u5bc6\u7801\u3001\u9a8c\u8bc1\u7801\u6216\u5bc6\u94a5\u3002", 12, false));
+        settingsBody.setVisibility(View.GONE);
+        page.addView(settingsBody);
+        settingsToggle.setOnClickListener(v -> {
+            boolean open = settingsBody.getVisibility() != View.VISIBLE;
+            settingsBody.setVisibility(open ? View.VISIBLE : View.GONE);
+            settingsToggle.setText(open ? "\u6536\u8d77\u53c2\u8003\u8303\u56f4\u4e0e\u6743\u9650" : "\u53c2\u8003\u8303\u56f4\u4e0e\u6743\u9650 \u00b7 \u53ef\u9009");
+        });
+
+        LinearLayout connection = column();
+        connection.setPadding(dp(4), dp(6), dp(4), dp(6));
+        status = label("\u6b63\u5728\u8bfb\u53d6 AI \u8fde\u63a5\u72b6\u6001\u2026", 13, false);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        connection.addView(status);
+        refresh = button("\u5237\u65b0\u8fde\u63a5\u72b6\u6001", false);
+        refresh.setOnClickListener(v -> fetchStatus()); connection.addView(refresh);
+        page.addView(connection);
         conversation = column(); page.addView(conversation);
-        previewBox = column(); page.addView(previewBox);
-        ScrollView scroll = new ScrollView(activity); scroll.setFillViewport(true); scroll.addView(page);
+        previewBox = column(); previewBox.setVisibility(View.GONE); page.addView(previewBox);
+        ScrollView scroll = new ScrollView(activity);
+        scroll.setFillViewport(true); scroll.setVerticalScrollBarEnabled(false); scroll.addView(page);
         dialog = new AlertDialog.Builder(activity).setView(scroll).setNegativeButton("\u8fd4\u56de\u5de5\u4f5c\u53f0", null).create();
         dialog.setOnDismissListener(v -> close());
         dialog.setOnShowListener(v -> {
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(w -> {
+            Button back = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            back.setTextColor(GREEN); back.setMinHeight(dp(48));
+            back.setOnClickListener(w -> {
                 if (busy) { toast("\u8bf7\u7b49\u5f85\u5f53\u524d\u8bf7\u6c42\u7ed3\u675f\uff0c\u4fdd\u5b58\u65f6\u4e0d\u8981\u9000\u51fa\u3002"); return; }
                 dialog.dismiss();
             });
@@ -102,6 +172,7 @@ final class NativeAiSheet {
                 dialog.getWindow().setLayout(-1, -1);
                 dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             }
+            NativeUi.enter(page);
         });
         dialog.show();
         mode.setOnCheckedChangeListener((v, id) -> updateControls());
@@ -113,6 +184,10 @@ final class NativeAiSheet {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         handler.post(expiryTick); fetchStatus();
+    }
+    private void showSettings() {
+        settingsBody.setVisibility(View.VISIBLE);
+        settingsToggle.setText("\u6536\u8d77\u53c2\u8003\u8303\u56f4\u4e0e\u6743\u9650");
     }
     private void fetchStatus() {
         if (busy || closed) return;
@@ -178,6 +253,7 @@ final class NativeAiSheet {
         }
         boolean allowed = finance.isChecked();
         if (WorkbenchClientPolicy.needsFinancialConsent(context) && !allowed) {
+            showSettings();
             toast("\u8fd9\u6b21\u8f93\u5165\u6216\u5bf9\u8bdd\u4e0a\u4e0b\u6587\u5305\u542b\u91d1\u989d / \u6536\u5165\u4fe1\u606f\uff0c\u8bf7\u5148\u52fe\u9009\u672c\u6b21\u5904\u7406\u540c\u610f\u3002"); return;
         }
         JSONObject payload = new JSONObject();
@@ -187,7 +263,7 @@ final class NativeAiSheet {
         put(payload, "allowFinancial", allowed);
         if (planning) put(payload, "previousDraft", previousDraft);
         else { put(payload, "history", history); put(payload, "captureSource", pendingSource); }
-        draft = null; saved = false; previewBox.removeAllViews(); confirm = null; discard = null; expiry = null;
+        draft = null; saved = false; previewBox.removeAllViews(); previewBox.setVisibility(View.GONE); confirm = null; discard = null; expiry = null;
         setBusy(true); status.setText("AI \u6b63\u5728\u6574\u7406\uff0c\u6ca1\u6709\u4fdd\u5b58\u4efb\u4f55\u6570\u636e\u3002\u8bf7\u7a0d\u7b49\u2026");
         finance.setChecked(false);
         bridge.request("/api/assistant", payload, envelope -> {
@@ -221,10 +297,12 @@ final class NativeAiSheet {
         }
     }
     private void renderConversation(String prompt, String answer) {
-        conversation.addView(label("\u4f60\uff1a\n" + prompt, 15, false));
-        conversation.addView(label("AI\uff1a\n" + answer.substring(0, Math.min(answer.length(), 8000)), 15, false));
+        conversation.addView(NativeUi.message(activity, prompt, true));
+        conversation.addView(NativeUi.message(activity,
+            answer.substring(0, Math.min(answer.length(), 8000)), false));
         while (conversation.getChildCount() > 12) conversation.removeViewAt(0);
     }
+
     private String timeLabel(String raw) {
         if (raw == null || raw.isEmpty()) return "";
         String normalized = raw.endsWith("Z") ? raw.substring(0, raw.length() - 1) + "+0000"
@@ -243,10 +321,13 @@ final class NativeAiSheet {
         return raw;
     }
     private void renderPreview() {
-        previewBox.removeAllViews(); confirm = null; discard = null; expiry = null;
+        previewBox.removeAllViews(); previewBox.setVisibility(View.GONE); confirm = null; discard = null; expiry = null;
         if (draft == null) return;
+        previewBox.setVisibility(View.VISIBLE);
+        if (financialDraft()) showSettings();
         previewBox.setPadding(dp(14), dp(14), dp(14), dp(14));
-        previewBox.setBackground(shape(Color.WHITE));
+        previewBox.setBackground(NativeUi.shape(activity, Color.WHITE, 22, NativeUi.BORDER));
+        previewBox.addView(NativeUi.badge(activity, "\u5f85\u786e\u8ba4 \u00b7 \u5c1a\u672a\u4fdd\u5b58", NativeUi.MINT, GREEN));
         previewBox.addView(label(planDraft ? "\u8ba1\u5212\u8349\u7a3f \u00b7 \u786e\u8ba4\u540e\u624d\u4fdd\u5b58" : draft.optString("title", "\u5f85\u786e\u8ba4\u5185\u5bb9"), 19, true));
         if (planDraft) {
             previewBox.addView(label(draft.optString("summary"), 14, false));
@@ -272,7 +353,11 @@ final class NativeAiSheet {
         }
         JSONArray warnings = draft.optJSONArray("warnings");
         if (warnings != null) for (int i = 0; i < warnings.length(); i++) {
-            previewBox.addView(label("\u9700\u8981\u5904\u7406\uff1a" + warnings.optString(i), 13, true));
+            TextView warning = label("\u9700\u8981\u5904\u7406\uff1a" + warnings.optString(i), 13, true);
+            warning.setTextColor(0xFF865324);
+            warning.setPadding(dp(12), dp(10), dp(12), dp(10));
+            warning.setBackground(NativeUi.shape(activity, 0xFFFFF3DF, 12));
+            previewBox.addView(warning);
         }
         expiry = label("", 12, false); previewBox.addView(expiry);
         confirm = button("\u786e\u8ba4\u6dfb\u52a0\u5230\u5de5\u4f5c\u53f0", true); confirm.setOnClickListener(v -> confirmSave()); previewBox.addView(confirm);
@@ -280,7 +365,7 @@ final class NativeAiSheet {
         discard.setOnClickListener(v -> new AlertDialog.Builder(activity).setTitle("\u653e\u5f03\u672a\u4fdd\u5b58\u8349\u7a3f\uff1f")
             .setMessage("\u4e0d\u4f1a\u4fee\u6539\u4e91\u7aef\u6570\u636e\u3002\u4f60\u53ef\u4ee5\u8865\u5145\u8981\u6c42\uff0c\u91cd\u65b0\u8ba9 AI \u6574\u7406\u3002")
             .setNegativeButton("\u4fdd\u7559", null).setPositiveButton("\u653e\u5f03", (d, which) -> {
-                draft = null; saved = false; previewBox.removeAllViews(); confirm = null; discard = null; expiry = null;
+                draft = null; saved = false; previewBox.removeAllViews(); previewBox.setVisibility(View.GONE); confirm = null; discard = null; expiry = null;
                 status.setText("\u8349\u7a3f\u5df2\u653e\u5f03\uff0c\u6ca1\u6709\u4fdd\u5b58\u3002"); updateControls();
             }).show());
         previewBox.addView(discard); updateControls();
@@ -402,19 +487,20 @@ final class NativeAiSheet {
     private int dp(int n) { return Math.round(n * activity.getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout view = new LinearLayout(activity); view.setOrientation(LinearLayout.VERTICAL); return view; }
     private GradientDrawable shape(int color) {
-        GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(16)); return shape;
+        return NativeUi.shape(activity, color, 18);
     }
+
     private TextView label(String value, int size, boolean bold) {
-        TextView view = new TextView(activity); view.setText(value); view.setTextColor(INK); view.setTextSize(size);
-        view.setPadding(0, dp(7), 0, dp(7)); view.setTextIsSelectable(true);
-        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return view;
+        TextView view = NativeUi.label(activity, value, size, size < 14 && !bold ? NativeUi.MUTED : INK, bold);
+        view.setPadding(0, dp(7), 0, dp(7));
+        view.setTextIsSelectable(true);
+        return view;
     }
+
     private Button button(String text, boolean primary) {
-        Button button = new Button(activity); button.setText(text); button.setAllCaps(false);
-        button.setTextColor(primary ? Color.WHITE : GREEN); button.setBackground(shape(primary ? GREEN : Color.rgb(226,239,230)));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(50));
-        params.setMargins(0, dp(6), 0, dp(6)); button.setLayoutParams(params); return button;
+        return NativeUi.button(activity, text, primary);
     }
+
     private void toast(String value) { Toast.makeText(activity, value, Toast.LENGTH_LONG).show(); }
     private static void put(JSONObject object, String key, Object value) {
         try { object.put(key, value); } catch (Exception ignored) { }
