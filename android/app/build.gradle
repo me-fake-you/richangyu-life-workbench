@@ -5,6 +5,15 @@ def releaseStorePassword = System.getenv('RICHANGYU_ANDROID_KEYSTORE_PASSWORD') 
 def releaseKeyPassword = System.getenv('RICHANGYU_ANDROID_KEY_PASSWORD') ?: ''
 def hasReleaseSigning = releaseKeystore.exists() && releaseStorePassword && releaseKeyPassword
 
+def previewKeystore = file('preview.keystore')
+def previewStorePassword = System.getenv('RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD') ?: ''
+def previewKeyPassword = System.getenv('RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD') ?: ''
+def previewKeyAlias = System.getenv('RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS') ?: 'preview'
+def hasPreviewSigning = previewKeystore.exists() && previewStorePassword && previewKeyPassword
+if ((previewKeystore.exists() || previewStorePassword || previewKeyPassword) && !hasPreviewSigning) {
+    throw new GradleException('Incomplete preview signing configuration; refusing a silent debug-key fallback.')
+}
+
 android {
     namespace "com.richangyu.lifeworkbench"
     compileSdk rootProject.ext.compileSdkVersion
@@ -12,8 +21,8 @@ android {
         applicationId "com.richangyu.lifeworkbench"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10005
-        versionName "1.8.3"
+        versionCode 10006
+        versionName "1.8.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -24,6 +33,14 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     signingConfigs {
+        if (hasPreviewSigning) {
+            preview {
+                storeFile previewKeystore
+                storePassword previewStorePassword
+                keyAlias previewKeyAlias
+                keyPassword previewKeyPassword
+            }
+        }
         if (hasReleaseSigning) {
             release {
                 storeFile releaseKeystore
@@ -35,6 +52,7 @@ android {
     }
     buildTypes {
         debug {
+            if (hasPreviewSigning) signingConfig signingConfigs.preview
             applicationIdSuffix ".preview"
             versionNameSuffix "-preview"
             resValue "string", "app_name", "\u751f\u6d3b\u5de5\u4f5c\u53f0 \u00b7 \u9884\u89c8"

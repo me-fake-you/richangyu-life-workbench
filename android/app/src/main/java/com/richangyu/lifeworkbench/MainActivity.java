@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.SharedPreferences;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -57,6 +59,8 @@ public class MainActivity extends AppCompatActivity {
     private NativeAiSheet aiSheet;
     private boolean bindingChanging;
     private AlertDialog bindingDialog;
+    private AlertDialog updateDialog;
+    private NativeUpdateChecker updateChecker;
     private static final int INK = NativeUi.INK;
     private static final int MUTED = NativeUi.MUTED;
     private static final int GREEN = NativeUi.FOREST;
@@ -108,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
         baseUrl = WorkbenchClientPolicy.normalizeOrigin(prefs.getString("workbench_url", ""));
         saveOutcomeUnknown = prefs.getBoolean("save_outcome_unknown", false);
         mobileApi = new MobileApiBridge(baseUrl.isEmpty() ? "https://unconfigured.invalid" : baseUrl);
+        updateChecker = new NativeUpdateChecker();
         buildShell();
         setContentView(root);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -488,6 +493,22 @@ public class MainActivity extends AppCompatActivity {
         account.addView(version);
         body.addView(account);
 
+        sectionTitle(body, "安装与更新");
+        LinearLayout updates = card();
+        TextView updateHeading = text("让日常屿保持新鲜", 17, INK);
+        updateHeading.setTypeface(NativeUi.MEDIUM);
+        updates.addView(updateHeading);
+        TextView updateHint = text("当前 " + appVersion() + "\n手动检查公开预览版，不上传工作台记录。", 12, MUTED);
+        updateHint.setPadding(0, dp(8), 0, dp(6));
+        updates.addView(updateHint);
+        Button checkUpdate = primaryButton("检查新版本");
+        checkUpdate.setOnClickListener(v -> showUpdateCheck());
+        updates.addView(checkUpdate);
+        Button installHelp = secondaryButton("安装、登录与更新帮助");
+        installHelp.setOnClickListener(v -> showInstallHelp());
+        updates.addView(installHelp);
+        body.addView(updates);
+
         sectionTitle(body, "连接与同步");
         LinearLayout binding = card();
         TextView bindingTitle = text("绑定的工作台", 16, INK);
@@ -554,6 +575,96 @@ public class MainActivity extends AppCompatActivity {
     private String appVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (Exception ignored) { return "开发版"; }
+    }
+
+
+    private void showUpdateCheck() {
+        if (saving || syncing || bindingChanging || (aiSheet != null && aiSheet.isBusy())) {
+            Toast.makeText(this, "请先等待当前操作结束，再检查版本。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!WorkbenchReleasePolicy.PREVIEW_PACKAGE.equals(getPackageName())) {
+            new AlertDialog.Builder(this).setTitle("正式版更新")
+                .setMessage("此入口只检查公开预览版。正式版请使用其原始发行渠道；目前尚未完成商店上架。")
+                .setPositiveButton("知道了", null).show();
+            return;
+        }
+        if (updateDialog != null && updateDialog.isShowing()) return;
+        final AlertDialog dialog = new AlertDialog.Builder(this).setTitle("安装与更新")
+            .setMessage("当前版本：" + appVersion() + "\n正在读取 GitHub 公开发布信息…")
+            .setNegativeButton("关闭", null).setNeutralButton("官方发布页", (d, which) ->
+                openReleasePage(WorkbenchReleasePolicy.RELEASES_PAGE))
+            .setPositiveButton("重新检查", null).create();
+        updateDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (updateDialog == dialog) { updateChecker.cancel(); updateDialog = null; }
+        });
+        dialog.setOnShowListener(d -> runUpdateCheck(dialog));
+        dialog.show();
+    }
+
+    private void runUpdateCheck(AlertDialog dialog) {
+        dialog.setMessage("当前版本：" + appVersion() + "\n正在读取 GitHub 公开发布信息…\n不发送账号或记录，不自动下载安装。");
+        Button action = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        action.setText("正在检查");
+        action.setEnabled(false);
+        updateChecker.check(appVersion(), (candidate, error) -> {
+            if (isFinishing() || isDestroyed() || updateDialog != dialog || !dialog.isShowing()) return;
+            action.setEnabled(true);
+            if (error != null) {
+                dialog.setMessage("检查未完成\n\n" + error + "\n\n没有把检查失败当作“已是最新版”。");
+                action.setText("重试");
+                action.setOnClickListener(v -> runUpdateCheck(dialog));
+                return;
+            }
+            if (candidate == null) {
+                dialog.setMessage("当前版本：" + appVersion() + "\n\n未发现比当前版本更新的公开预览包。此检查不代表正式版或应用商店状态。");
+                action.setText("重新检查");
+                action.setOnClickListener(v -> runUpdateCheck(dialog));
+                return;
+            }
+            WorkbenchReleasePolicy.Compatibility compatibility = WorkbenchReleasePolicy.compatibility(candidate,
+                NativeUpdateChecker.installedCertificate(this), NativeUpdateChecker.installedVersionCode(this));
+            String hint;
+            if (compatibility == WorkbenchReleasePolicy.Compatibility.SAME_SIGNER) {
+                hint = "签名一致且版本代码递增，满足覆盖更新的基本条件；是否能安装仍由安卓系统判断。";
+            } else if (compatibility == WorkbenchReleasePolicy.Compatibility.DIFFERENT_SIGNER) {
+                hint = "签名不一致，不能直接覆盖当前安装。不要直接卸载：先确认重要记录已成功保存到云端，本机草稿和未保存输入可能丢失。";
+            } else if (compatibility == WorkbenchReleasePolicy.Compatibility.NON_INCREASING_VERSION) {
+                hint = "安装包的安卓版本代码没有递增，不能把它视为可覆盖更新，请先查看发布说明。";
+            } else {
+                hint = "签名或版本信息不足，暂不能确认能否覆盖安装。请查看发布说明，不要为绕过冲突删除未同步数据。";
+            }
+            String signing = candidate.persistent ? "此发布声明使用固定预览签名。" : "此发布未声明固定预览签名，后续覆盖更新不保证。";
+            dialog.setMessage("发现 " + candidate.tag + "\n安装包约 "
+                + String.format(Locale.CHINA, "%.1f", candidate.bytes / 1000000.0) + " MB\n\n"
+                + hint + "\n\n" + signing + "\n\n版本信息来自公开发布记录，并非已下载 APK 的安全验证。点击后仅打开官方发布页，由你手动下载。");
+            action.setText("打开下载页");
+            action.setOnClickListener(v -> openReleasePage(candidate.page));
+        });
+    }
+
+    private void openReleasePage(String page) {
+        if (!WorkbenchReleasePolicy.trustedPage(page)) {
+            Toast.makeText(this, "下载地址不属于可信的官方发布页。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(page)).addCategory(Intent.CATEGORY_BROWSABLE));
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "未找到能打开链接的浏览器，请安装或启用手机浏览器。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void showInstallHelp() {
+        new AlertDialog.Builder(this).setTitle("安装、登录与更新帮助")
+            .setMessage("下载与安装\n请用手机浏览器打开官方发布页，下载 .apk 文件。微信内不能安装时，可选择在浏览器打开。若文件被加上 .1 后缀，仅在确认它是官方 APK 后恢复 .apk 扩展名；不要把其他文件改名安装。\n\n"
+                + "登录与使用\n首次填写自己的可信 HTTPS 工作台根地址。网页只用于授权，读取成功后进入原生打卡、记录、日程和 AI 页面。没有绑定或授权失败时，不会出现你的云端记录。\n\n"
+                + "工作台与 App 更新\n云端保存成功的记录共用同一工作台。服务器功能能否同步取决于接口兼容；原生界面和安卓功能需要安装新版 APK，不会随网页自动更新。\n\n"
+                + "升级前保护数据\n先等待当前保存结束，核对云端记录。遇到签名冲突不要直接卸载，本机输入和草稿可能丢失。\n\n"
+                + "当前为预览版，尚未在应用商店正式上架，也未完成你的手机实测。仅为可信下载来源授权安装，不要关闭全局安全防护。")
+            .setNegativeButton("关闭", null)
+            .setPositiveButton("官方发布页", (d, which) -> openReleasePage(WorkbenchReleasePolicy.RELEASES_PAGE)).show();
     }
 
     private void pageTitle(LinearLayout body, String title, String hint, String action, Runnable listener) {
@@ -985,6 +1096,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void showError(String message) {
         content.removeAllViews();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout body = page();
+        body.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout box = card();
         box.addView(text("工作台暂时没有连接成功", 20, INK));
         TextView detail = text(message, 14, MUTED);
@@ -996,9 +1112,15 @@ public class MainActivity extends AppCompatActivity {
         Button binding = secondaryButton("设置 / 更换工作台地址");
         binding.setOnClickListener(v -> showBinding());
         box.addView(binding);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
-        params.setMargins(dp(20), 0, dp(20), 0);
-        content.addView(box, params);
+        Button help = secondaryButton("安装与登录帮助");
+        help.setOnClickListener(v -> showInstallHelp());
+        box.addView(help);
+        Button update = secondaryButton("检查 App 新版本");
+        update.setOnClickListener(v -> showUpdateCheck());
+        box.addView(update);
+        body.addView(box);
+        scroll.addView(body);
+        content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private void setSaveOutcomeUnknown(boolean value) {
@@ -1123,7 +1245,7 @@ public class MainActivity extends AppCompatActivity {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             settings.setJavaScriptCanOpenWindowsAutomatically(false);
             if (Build.VERSION.SDK_INT >= 26) settings.setSafeBrowsingEnabled(true);
-            settings.setUserAgentString(settings.getUserAgentString() + " RichangyuNative/1.8.2");
+            settings.setUserAgentString(settings.getUserAgentString() + " RichangyuNative/" + appVersion());
             CookieManager.getInstance().setAcceptThirdPartyCookies(authWebView, true);
             if (!mobileApi.attach(authWebView)) {
                 authWebView.destroy(); authWebView = null;
@@ -1241,6 +1363,8 @@ public class MainActivity extends AppCompatActivity {
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
         if (aiSheet != null) aiSheet.close();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
+        if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
+        if (updateChecker != null) updateChecker.close();
         if (mobileApi != null) mobileApi.close();
         if (authWebView != null) authWebView.destroy();
         super.onDestroy();
