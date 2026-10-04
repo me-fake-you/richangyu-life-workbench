@@ -1,0 +1,10 @@
+{
+  "name": "richangyu-multiuser-foundation",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": false,
+  "vars": {
+    "MULTIUSER_FOUNDATION_ENABLED": "false",
+    "MULTIUSER_AUTH_MODE": "disabled"
+  }
+}

@@ -1,0 +1,34 @@
+name: Multiuser foundation
+on:
+  push:
+    branches: ['codex/workbench-ai-20261002-c258dd87']
+    paths: ['multiuser/**', 'tests/multiuser-workspace-isolation.test.mjs', '.github/workflows/multiuser-foundation.yml', 'docs/MULTIUSER-FOUNDATION-20261004.md']
+  pull_request:
+    paths: ['multiuser/**', 'tests/multiuser-workspace-isolation.test.mjs', '.github/workflows/multiuser-foundation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci
+      - name: Execute real SQLite ownership tests
+        run: node --test tests/multiuser-workspace-isolation.test.mjs
+      - name: Build disabled independent Worker without deployment
+        working-directory: multiuser
+        run: node ../node_modules/wrangler/bin/wrangler.js deploy --config wrangler.jsonc --dry-run --outdir ../outputs/multiuser-foundation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multiuser-foundation-worker
+          path: outputs/multiuser-foundation/
+          if-no-files-found: error
+          retention-days: 14
