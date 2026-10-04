@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.SharedPreferences;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
 import android.graphics.Color;
@@ -65,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private NativeAiSheet aiSheet;
     private boolean bindingChanging;
     private AlertDialog bindingDialog;
+    private AlertDialog bindingConfirmation;
     private AlertDialog updateDialog;
     private NativeUpdateChecker updateChecker;
     private static final int INK = NativeUi.INK;
@@ -184,7 +187,8 @@ public class MainActivity extends AppCompatActivity {
         identity.addView(brand);
         identity.addView(text("生活工作台", 11, MUTED));
         header.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
-        syncLabel = text("正在连接", 12, GREEN);
+        syncLabel = text(WorkbenchBindingPolicy.entryState(baseUrl) == WorkbenchBindingPolicy.EntryState.NEEDS_BINDING
+            ? "待绑定" : "等待授权", 12, GREEN);
         syncLabel.setGravity(Gravity.CENTER);
         syncLabel.setMinHeight(dp(48));
         syncLabel.setMaxLines(2);
@@ -1211,6 +1215,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showError(String message) {
+        if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         content.removeAllViews();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -1263,6 +1268,55 @@ public class MainActivity extends AppCompatActivity {
         aiSheet.show();
     }
 
+    private void showBindingWelcome() {
+        cancelScheduleFilter();
+        elapsedView = null;
+        elapsedStartedAt = "";
+        syncLabel.setText("待绑定");
+        content.removeAllViews();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout body = page();
+        TextView eyebrow = text("WELCOME / 初次连接", 11, GREEN);
+        eyebrow.setPadding(dp(2), dp(8), 0, dp(8));
+        body.addView(eyebrow);
+        TextView heading = text("先连接你的工作台", 27, INK);
+        heading.setTypeface(NativeUi.DISPLAY);
+        body.addView(heading);
+        TextView subtitle = text("App 已经打开，下一步绑定你已有的工作台。", 13, MUTED);
+        subtitle.setPadding(0, dp(9), 0, dp(18));
+        body.addView(subtitle);
+        LinearLayout guide = card();
+        guide.setBackground(NativeUi.shape(this, PALE_GREEN, 22, NativeUi.BORDER));
+        guide.addView(text("三步，让你的日常来到手机上", 17, INK));
+        String[] steps = {
+            "1. 复制工作台网址\n使用你自己的 HTTPS 根地址，不是邮箱、登录链接或 API 密钥。",
+            "2. 粘贴并确认域名\n点击下方绑定按钮，粘贴地址后确认目标工作台。",
+            "3. 登录后读取云端数据\n授权并读取成功后，返回原生打卡、记录、日程和 AI 页面。"
+        };
+        for (String step : steps) {
+            TextView line = text(step, 13, INK);
+            line.setPadding(0, dp(15), 0, 0);
+            guide.addView(line);
+        }
+        body.addView(guide);
+        Button bind = primaryButton("绑定我的工作台");
+        bind.setOnClickListener(v -> showBinding());
+        body.addView(bind);
+        TextView privacy = text("未绑定时不会读取云端记录；公开 App 不内置你的私人网址。", 11, MUTED);
+        privacy.setPadding(dp(2), dp(10), dp(2), dp(12));
+        body.addView(privacy);
+        Button help = secondaryButton("安装与登录帮助");
+        help.setOnClickListener(v -> showInstallHelp());
+        body.addView(help);
+        Button update = secondaryButton("检查 App 新版本");
+        update.setOnClickListener(v -> showUpdateCheck());
+        body.addView(update);
+        scroll.addView(body);
+        content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+    }
+
     private void showBinding() {
         if (bindingChanging || saving || syncing || (aiSheet != null && aiSheet.isBusy())) {
             Toast.makeText(this, "请先等待当前请求结束。", Toast.LENGTH_LONG).show(); return;
@@ -1274,27 +1328,79 @@ public class MainActivity extends AppCompatActivity {
         EditText address = input("https://你的工作台域名", false);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setText(baseUrl);
-        address.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(300)});
-        LinearLayout form = card();
-        form.addView(text("填写自己的可信 HTTPS 工作台根地址，不填登录链接、密钥或密码。新地址会接收本次授权与操作。", 14, MUTED));
+        address.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(WorkbenchBindingPolicy.MAX_ADDRESS)});
+        LinearLayout form = dialogForm();
+        form.addView(text("填写自己的可信 HTTPS 根地址，不填邮箱、登录路径、密钥或密码。新地址会接收本次授权与操作。", 13, MUTED));
         form.addView(address);
+        Button paste = secondaryButton("粘贴工作台地址");
+        paste.setOnClickListener(v -> pasteWorkbenchAddress(address));
+        form.addView(paste);
+        TextView hint = text("只在你点击粘贴时读取第一项剪贴板文本，不自动连接。下一步会让你确认域名。", 11, MUTED);
+        hint.setPadding(0, dp(7), 0, dp(5));
+        form.addView(hint);
         bindingDialog = new AlertDialog.Builder(this).setTitle(baseUrl.isEmpty() ? "绑定我的工作台" : "更换工作台")
-            .setView(form).setNegativeButton("暂不连接", (d, which) -> {
-                if (baseUrl.isEmpty()) showError("尚未设置工作台地址，可随时点击下方按钮连接。");
+            .setView(scrollForm(form)).setNegativeButton("暂不连接", (d, which) -> {
+                if (baseUrl.isEmpty()) showBindingWelcome();
             }).setPositiveButton("连接", null).create();
         bindingDialog.setOnShowListener(v -> bindingDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w -> {
-            String next = WorkbenchClientPolicy.normalizeOrigin(address.getText().toString());
-            if (next.isEmpty()) { address.setError("只接受 HTTPS 根域名地址，不支持路径、参数、IP 或本地地址。"); return; }
+            String next = WorkbenchBindingPolicy.preparedOrigin(address.getText().toString());
+            if (next.isEmpty()) {
+                address.setError("请输入一个可信 HTTPS 根域名地址，不填邮箱、登录路径、参数、IP 或本地地址。");
+                return;
+            }
             if (next.equals(baseUrl)) { bindingDialog.dismiss(); showAuth(); return; }
-            if (!baseUrl.isEmpty()) {
-                new AlertDialog.Builder(this).setTitle("确认切换到 " + Uri.parse(next).getHost())
-                    .setMessage("会清除本 App 的登录会话、当前页面和 AI 草稿，再授权新工作台。不会删除旧工作台的云端记录。请确认新域名可信。")
-                    .setNegativeButton("取消", null).setPositiveButton("确认更换", (d, which) -> {
-                        bindingDialog.dismiss(); bindWorkbench(next);
-                    }).show();
-            } else { bindingDialog.dismiss(); bindWorkbench(next); }
+            confirmWorkbenchBinding(next);
         }));
         bindingDialog.show();
+    }
+
+    private void pasteWorkbenchAddress(EditText address) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            ClipData clip = clipboard == null ? null : clipboard.getPrimaryClip();
+            CharSequence copied = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).getText();
+            if (copied == null) {
+                Toast.makeText(this, "先复制你的 HTTPS 工作台根地址，再点击粘贴。", Toast.LENGTH_LONG).show();
+                return;
+            }
+            String origin = WorkbenchBindingPolicy.preparedOrigin(copied.toString());
+            if (origin.isEmpty()) {
+                address.setError("剪贴板不是一个可用的 HTTPS 根地址。请复制网址，不要复制登录链接、邮箱、密码或多行文字。");
+                return;
+            }
+            address.setError(null);
+            address.setText(origin);
+            address.setSelection(origin.length());
+            Toast.makeText(this, "地址已填入，确认域名后点击连接。", Toast.LENGTH_LONG).show();
+        } catch (SecurityException error) {
+            Toast.makeText(this, "暂时无法读取剪贴板，可长按输入框手动粘贴地址。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void confirmWorkbenchBinding(String origin) {
+        if (bindingConfirmation != null && bindingConfirmation.isShowing()) return;
+        final String previousOrigin = baseUrl;
+        final AlertDialog confirmation = new AlertDialog.Builder(this)
+            .setTitle((previousOrigin.isEmpty() ? "确认连接到 " : "确认切换到 ") + Uri.parse(origin).getHost())
+            .setMessage(previousOrigin.isEmpty()
+                ? "将使用这个工作台地址打开登录授权页，并向它读取和保存你的工作台数据。请核对域名确实属于你要使用的工作台；此确认不会自动登录或创建记录。"
+                : "会清除本 App 的登录会话、当前页面和 AI 草稿，再授权新工作台。不会删除旧工作台的云端记录。请确认新域名可信。")
+            .setNegativeButton("返回修改", null)
+            .setPositiveButton(previousOrigin.isEmpty() ? "确认连接" : "确认更换", (d, which) -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (!previousOrigin.equals(baseUrl) || bindingChanging || saving || syncing
+                        || saveOutcomeUnknown || (aiSheet != null && aiSheet.isBusy())) {
+                    Toast.makeText(this, "工作台状态已变化，请等待当前操作结束后重新确认。", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (bindingDialog != null) bindingDialog.dismiss();
+                bindWorkbench(origin);
+            }).create();
+        bindingConfirmation = confirmation;
+        confirmation.setOnDismissListener(d -> {
+            if (bindingConfirmation == confirmation) bindingConfirmation = null;
+        });
+        confirmation.show();
     }
 
     private void bindWorkbench(String origin) {
@@ -1323,11 +1429,12 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void showAuth() {
         if (bindingChanging) return;
-        if (baseUrl.isEmpty()) { showError("先设置自己的 HTTPS 工作台地址。"); showBinding(); return; }
+        if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
         bridgeReady = false;
         if (saving) return;
         mobileApi.cancelPending();
+        syncLabel.setText("等待授权");
 
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(Color.WHITE);
@@ -1480,6 +1587,7 @@ public class MainActivity extends AppCompatActivity {
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
         if (aiSheet != null) aiSheet.close();
+        if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
         if (updateChecker != null) updateChecker.close();
