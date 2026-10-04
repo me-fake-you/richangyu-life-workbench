@@ -2,7 +2,7 @@ name: Android native preview
 on:
   push:
     branches: ['codex/workbench-ai-20261002-c258dd87']
-    paths: ['android/**', '.github/workflows/android-native-preview.yml', 'docs/ANDROID-PREVIEW-RELEASE-1.8.6.md']
+    paths: ['android/**', '.github/workflows/android-native-preview.yml', 'docs/ANDROID-PREVIEW-RELEASE-1.8.7.md']
   pull_request:
     paths: ['android/**', '.github/workflows/android-native-preview.yml']
   workflow_dispatch:
@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64: ${{ secrets.RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64 }}
-      RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD: ${{ secrets.RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD }}
-      RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD: ${{ secrets.RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD }}
+      RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64 || '' }}
+      RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD || '' }}
+      RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD || '' }}
       RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS: ${{ vars.RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS }}
       RICHANGYU_ANDROID_PREVIEW_CERT_SHA256: ${{ vars.RICHANGYU_ANDROID_PREVIEW_CERT_SHA256 }}
     steps:
@@ -48,13 +48,17 @@ jobs:
             echo "Personal endpoint or credential-shaped text found."
             exit 1
           fi
-      - name: Prepare optional persistent preview signing
+      - name: Prepare persistent preview signing
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "$RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64" ] && [ -z "$RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD" ] && [ -z "$RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD" ]; then
-            echo "No persistent preview key configured; debug signing does not guarantee future updates."
-            exit 0
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "PR validation uses an ephemeral test key; no public release is produced."
+              exit 0
+            fi
+            echo "Persistent preview signing is required for public builds; refusing an ephemeral release."
+            exit 1
           fi
           if [ -z "$RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64" ] || [ -z "$RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD" ] || [ -z "$RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD" ]; then
             echo "Incomplete preview signing secrets; refusing fallback."
@@ -82,17 +86,21 @@ jobs:
             [ "$certificate" = "$RICHANGYU_ANDROID_PREVIEW_CERT_SHA256" ] || { echo "Built APK certificate does not match the public pin."; exit 1; }
             signing=persistent
           fi
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "$signing" != "persistent" ]; then
+            echo "Public preview must use the pinned persistent certificate."
+            exit 1
+          fi
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > android-package.txt
-          grep -q "name='com.richangyu.lifeworkbench.preview'.*versionCode='10008'.*versionName='1.8.6-preview'" android-package.txt
+          grep -q "name='com.richangyu.lifeworkbench.preview'.*versionCode='10009'.*versionName='1.8.7-preview'" android-package.txt
           grep -q "targetSdkVersion:'36'" android-package.txt
           mkdir -p preview
-          cp "$apk" preview/life-workbench-v1.8.6-preview.apk
-          (cd preview && sha256sum life-workbench-v1.8.6-preview.apk > life-workbench-v1.8.6-preview.apk.sha256)
-          cp docs/ANDROID-PREVIEW-RELEASE-1.8.6.md preview/RELEASE-NOTES.md
-          printf '\n<!-- workbench-preview-package: com.richangyu.lifeworkbench.preview -->\n<!-- workbench-preview-version-code: 10008 -->\n<!-- workbench-preview-certificate-sha256: %s -->\n<!-- workbench-preview-signing: %s -->\n' "$certificate" "$signing" >> preview/RELEASE-NOTES.md
+          cp "$apk" preview/life-workbench-v1.8.7-preview.apk
+          (cd preview && sha256sum life-workbench-v1.8.7-preview.apk > life-workbench-v1.8.7-preview.apk.sha256)
+          cp docs/ANDROID-PREVIEW-RELEASE-1.8.7.md preview/RELEASE-NOTES.md
+          printf '\n<!-- workbench-preview-package: com.richangyu.lifeworkbench.preview -->\n<!-- workbench-preview-version-code: 10009 -->\n<!-- workbench-preview-certificate-sha256: %s -->\n<!-- workbench-preview-signing: %s -->\n' "$certificate" "$signing" >> preview/RELEASE-NOTES.md
       - uses: actions/upload-artifact@v7
         with:
-          name: android-native-preview-1.8.6
+          name: android-native-preview-1.8.7
           path: preview/
           if-no-files-found: error
           retention-days: 30
@@ -120,19 +128,19 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Download tested preview
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.6 --dir preview
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.7 --dir preview
       - name: Publish immutable prerelease, never overwrite a signature
         shell: bash
         run: |
           set -euo pipefail
-          tag=v1.8.6-preview
+          tag=v1.8.7-preview
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Existing preview retained; do not replace a same-version APK signed with a different debug key."
             exit 0
           fi
           gh release create "$tag" \
-            preview/life-workbench-v1.8.6-preview.apk \
-            preview/life-workbench-v1.8.6-preview.apk.sha256 \
+            preview/life-workbench-v1.8.7-preview.apk \
+            preview/life-workbench-v1.8.7-preview.apk.sha256 \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Android native 1.8.6-preview" \
+            --title "Android native 1.8.7-preview" \
             --notes-file preview/RELEASE-NOTES.md --prerelease --latest=false
