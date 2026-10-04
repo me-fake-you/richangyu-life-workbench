@@ -30,6 +30,10 @@ import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.HorizontalScrollView;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.inputmethod.EditorInfo;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -49,6 +53,8 @@ import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
@@ -78,6 +84,9 @@ public class MainActivity extends AppCompatActivity {
     private JSONObject data;
     private String tab = "home";
     private String lastRenderedTab = "";
+    private String scheduleScope = WorkbenchSchedulePolicy.ALL;
+    private String scheduleQuery = "";
+    private Runnable scheduleFilterTask;
     private String deviceId;
     private boolean bridgeReady = false;
     private boolean syncing = false;
@@ -253,6 +262,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void render() {
+        cancelScheduleFilter();
         for (int i = 0; i < nav.getChildCount(); i++) {
             View item = nav.getChildAt(i);
             NativeUi.selectNav(item, tab.equals(item.getTag()));
@@ -438,29 +448,134 @@ public class MainActivity extends AppCompatActivity {
 
     private void renderSchedules(LinearLayout body) {
         pageTitle(body, "日程安排", "给重要的事留出时间。日期均按北京时间显示。", "新增日程", this::showScheduleDialog);
-        JSONArray schedules = data.optJSONArray("schedules");
-        if (schedules == null || schedules.length() == 0) {
-            emptyCard(body, "时间空着，也是一种可能", "安排一次学习、会议或出行，保存后同步到工作台。", "安排日程", this::showScheduleDialog);
-        } else {
-            String lastDay = "";
-            Calendar today = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
-            SimpleDateFormat keyFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-            keyFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-            String todayKey = keyFormat.format(today.getTime());
-            today.add(Calendar.DAY_OF_MONTH, 1);
-            String tomorrowKey = keyFormat.format(today.getTime());
-            for (int i = 0; i < schedules.length(); i++) {
-                JSONObject item = schedules.optJSONObject(i);
-                if (item == null) continue;
-                String key = visualDateLabel(item.optString("startAt"), "yyyy-MM-dd", "日期待定");
-                if (!key.equals(lastDay)) {
-                    String day = visualDateLabel(item.optString("startAt"), "M月d日 EEEE", "日期待定");
-                    sectionTitle(body, (key.equals(todayKey) ? "今天 · " : key.equals(tomorrowKey) ? "明天 · " : "") + day);
-                    lastDay = key;
-                }
-                addSchedule(body, item);
-            }
+        final JSONArray schedules = data.optJSONArray("schedules");
+        LinearLayout filters = card();
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("找到接下来的安排", 16, INK);
+        title.setTypeface(NativeUi.MEDIUM);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        Button reset = secondaryButton("重置");
+        reset.setTextSize(12);
+        reset.setOnClickListener(v -> resetScheduleFiltersAndRender());
+        titleRow.addView(reset, new LinearLayout.LayoutParams(dp(68), dp(48)));
+        filters.addView(titleRow);
+        HorizontalScrollView strip = new HorizontalScrollView(this);
+        strip.setHorizontalScrollBarEnabled(false);
+        strip.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout chips = new LinearLayout(this);
+        String[][] scopes = {{"全部", WorkbenchSchedulePolicy.ALL}, {"今天", WorkbenchSchedulePolicy.TODAY},
+            {"明天", WorkbenchSchedulePolicy.TOMORROW}, {"近 7 天", WorkbenchSchedulePolicy.WEEK}};
+        for (String[] scope : scopes) {
+            Button chip = secondaryButton(scope[0]);
+            chip.setTextSize(13);
+            boolean selected = scope[1].equals(scheduleScope);
+            NativeUi.decorateButton(chip, selected ? GREEN : PALE_GREEN, selected ? Color.WHITE : GREEN,
+                selected ? Color.TRANSPARENT : NativeUi.BORDER);
+            chip.setSelected(selected);
+            chip.setContentDescription(scope[0] + (selected ? "，已选中" : "，筛选日程"));
+            chip.setOnClickListener(v -> { scheduleScope = scope[1]; render(); });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(78), dp(48));
+            params.setMargins(0, dp(4), dp(6), dp(9));
+            chips.addView(chip, params);
         }
+        strip.addView(chips, new FrameLayout.LayoutParams(-2, -2));
+        filters.addView(strip, new LinearLayout.LayoutParams(-1, -2));
+        EditText search = input("搜索标题、地点或备注", false);
+        search.setContentDescription("搜索已同步的日程");
+        search.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(100)});
+        search.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        search.setText(scheduleQuery);
+        filters.addView(search);
+        filters.addView(text("只筛选手机本次已同步的日程，不会删除或改写云端数据。", 11, MUTED));
+        body.addView(filters);
+        TextView count = text("", 12, MUTED);
+        count.setPadding(dp(2), dp(2), dp(2), dp(8));
+        body.addView(count);
+        LinearLayout results = NativeUi.column(this);
+        body.addView(results);
+        renderScheduleResults(results, count, schedules);
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable value) {
+                scheduleQuery = value.toString();
+                cancelScheduleFilter();
+                scheduleFilterTask = () -> {
+                    scheduleFilterTask = null;
+                    if (!isFinishing() && !isDestroyed() && "schedule".equals(tab) && results.isAttachedToWindow())
+                        renderScheduleResults(results, count, schedules);
+                };
+                clockHandler.postDelayed(scheduleFilterTask, 180);
+            }
+        });
+        search.setOnEditorActionListener((view, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_SEARCH) {
+                cancelScheduleFilter();
+                renderScheduleResults(results, count, schedules);
+            }
+            return false;
+        });
+    }
+
+    private void renderScheduleResults(LinearLayout results, TextView count, JSONArray schedules) {
+        List<WorkbenchSchedulePolicy.Entry> loaded = new ArrayList<>();
+        if (schedules != null) for (int i = 0; i < schedules.length(); i++) {
+            JSONObject item = schedules.optJSONObject(i);
+            if (item != null) loaded.add(new WorkbenchSchedulePolicy.Entry(i, item.optString("title"),
+                item.optString("place"), item.optString("note"), item.optString("startAt"), item.optString("endAt")));
+        }
+        long now = System.currentTimeMillis();
+        List<WorkbenchSchedulePolicy.Entry> selected = WorkbenchSchedulePolicy.select(loaded, scheduleScope, scheduleQuery, now);
+        String scopeLabel = WorkbenchSchedulePolicy.TODAY.equals(scheduleScope) ? "今天"
+            : WorkbenchSchedulePolicy.TOMORROW.equals(scheduleScope) ? "明天"
+            : WorkbenchSchedulePolicy.WEEK.equals(scheduleScope) ? "今天起 7 天" : "全部";
+        count.setText("显示 " + selected.size() + " / " + loaded.size() + " 条已同步日程 · " + scopeLabel + " · 北京时间");
+        results.removeAllViews();
+        if (loaded.isEmpty()) {
+            emptyCard(results, "时间空着，也是一种可能", "安排一次学习、会议或出行，保存成功后同步到工作台。",
+                "安排日程", this::showScheduleDialog);
+            return;
+        }
+        if (selected.isEmpty()) {
+            emptyCard(results, "这个筛选下还没有安排", "本次已同步日程中没有匹配项，不代表云端没有其他日程。可以换个日期或关键词。",
+                "清空筛选", this::resetScheduleFiltersAndRender);
+            return;
+        }
+        Calendar clock = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+        clock.setTimeInMillis(now);
+        SimpleDateFormat keyFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        keyFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        String todayKey = keyFormat.format(clock.getTime());
+        clock.add(Calendar.DAY_OF_MONTH, 1);
+        String tomorrowKey = keyFormat.format(clock.getTime());
+        String lastDay = "";
+        for (WorkbenchSchedulePolicy.Entry entry : selected) {
+            JSONObject item = schedules.optJSONObject(entry.sourceIndex);
+            String key = visualDateLabel(item.optString("startAt"), "yyyy-MM-dd", "日期待定");
+            if (!key.equals(lastDay)) {
+                String day = visualDateLabel(item.optString("startAt"), "M月d日 EEEE", "日期待定");
+                sectionTitle(results, (key.equals(todayKey) ? "今天 · " : key.equals(tomorrowKey) ? "明天 · " : "") + day);
+                lastDay = key;
+            }
+            addSchedule(results, item);
+        }
+    }
+
+    private void cancelScheduleFilter() {
+        if (scheduleFilterTask != null) clockHandler.removeCallbacks(scheduleFilterTask);
+        scheduleFilterTask = null;
+    }
+
+    private void resetScheduleFilters() {
+        cancelScheduleFilter();
+        scheduleScope = WorkbenchSchedulePolicy.ALL;
+        scheduleQuery = "";
+    }
+
+    private void resetScheduleFiltersAndRender() {
+        resetScheduleFilters();
+        render();
     }
 
     private void renderMe(LinearLayout body) {
@@ -561,6 +676,7 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("重新授权", (dialog, which) -> {
                     bridgeReady = false;
                     mobileApi.cancelPending();
+                    resetScheduleFilters();
                     data = null;
                     syncLabel.setText("需要授权");
                     showError("请重新连接工作台。");
@@ -1190,6 +1306,7 @@ public class MainActivity extends AppCompatActivity {
         }
         View overlay = root.findViewWithTag("auth-overlay");
         if (overlay != null) root.removeView(overlay);
+        resetScheduleFilters();
         data = null; tab = "home"; baseUrl = origin;
         deviceId = "android-" + UUID.randomUUID();
         getSharedPreferences("native_workbench", MODE_PRIVATE).edit()
@@ -1359,6 +1476,7 @@ public class MainActivity extends AppCompatActivity {
         clockHandler.removeCallbacks(clockTick); super.onPause();
     }
     @Override protected void onDestroy() {
+        cancelScheduleFilter();
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
         if (aiSheet != null) aiSheet.close();
