@@ -65,6 +65,7 @@ import java.util.UUID;
 public class MainActivity extends AppCompatActivity {
     private String baseUrl = "";
     private NativeAiSheet aiSheet;
+    private NativeNutritionSheet nutritionSheet;
     private boolean bindingChanging;
     private AlertDialog bindingDialog;
     private AlertDialog bindingConfirmation;
@@ -314,6 +315,7 @@ public class MainActivity extends AppCompatActivity {
 
         addCheckinCard(body);
         addQuickActions(body);
+        addNutritionEntry(body);
 
         JSONObject summary = data.optJSONObject("summary");
         LinearLayout overview = card();
@@ -345,6 +347,26 @@ public class MainActivity extends AppCompatActivity {
         } else {
             for (int i = 0; i < Math.min(3, records.length()); i++) addRecord(body, records.optJSONObject(i));
         }
+    }
+
+    private void addNutritionEntry(LinearLayout body) {
+        LinearLayout box = card();
+        box.setBackground(NativeUi.shape(this, 0xFFF5EBD9, 22, 0xFFE9D8B8));
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(new NativeUi.IconView(this, "nutrition", GREEN), new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView title = text("热量与饮食", 21, INK);
+        title.setTypeface(NativeUi.DISPLAY); title.setPadding(dp(10), 0, 0, 0);
+        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        heading.addView(NativeUi.badge(this, "原生功能", PALE_GREEN, GREEN));
+        box.addView(heading);
+        TextView hint = text("查看每日热量、营养素与饮水；记录一餐后，与原工作台共用数据。", 13, MUTED);
+        hint.setPadding(0, dp(10), 0, dp(10)); box.addView(hint);
+        if (NativeNutritionSheet.hasUnknownSave(this, baseUrl)) {
+            box.addView(text("有饮食保存结果待核对，请进入后先同步。", 12, ROSE));
+        }
+        Button open = primaryButton("打开热量与饮食");
+        open.setOnClickListener(v -> showNutrition()); box.addView(open); body.addView(box);
     }
 
     private void addCheckinCard(LinearLayout body) {
@@ -612,6 +634,7 @@ public class MainActivity extends AppCompatActivity {
         account.addView(version);
         body.addView(account);
 
+        addNutritionEntry(body);
         sectionTitle(body, "安装与更新");
         LinearLayout updates = card();
         TextView updateHeading = text("让日常屿保持新鲜", 17, INK);
@@ -1249,10 +1272,24 @@ public class MainActivity extends AppCompatActivity {
         getSharedPreferences("native_workbench", MODE_PRIVATE).edit().putBoolean("save_outcome_unknown", value).apply();
     }
 
+    private void showNutrition() {
+        if (saving || syncing || bindingChanging || aiSheet != null) {
+            Toast.makeText(this, "请先结束当前连接、保存或 AI 页面。", Toast.LENGTH_SHORT).show(); return;
+        }
+        if (!bridgeReady || data == null) { showAuth(); return; }
+        if (nutritionSheet != null) return;
+        nutritionSheet = new NativeNutritionSheet(this, mobileApi, baseUrl, new NativeNutritionSheet.Host() {
+            @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || bindingChanging; }
+            @Override public void onAuthRequired() { showAuth(); }
+            @Override public void onClosed() { nutritionSheet = null; }
+        });
+        nutritionSheet.show();
+    }
+
     private void showAi() {
         if (saving || syncing || bindingChanging) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
-        if (aiSheet != null) return;
+        if (aiSheet != null || nutritionSheet != null) return;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving; }
             @Override public void onAuthRequired() {
@@ -1318,11 +1355,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showBinding() {
-        if (bindingChanging || saving || syncing || (aiSheet != null && aiSheet.isBusy())) {
+        if (bindingChanging || saving || syncing || (aiSheet != null && aiSheet.isBusy())
+            || (nutritionSheet != null && nutritionSheet.isBusy())) {
             Toast.makeText(this, "请先等待当前请求结束。", Toast.LENGTH_LONG).show(); return;
         }
-        if (saveOutcomeUnknown) {
-            Toast.makeText(this, "请先同步核对上次保存，在“我的”确认后再更换工作台。", Toast.LENGTH_LONG).show(); return;
+        if (saveOutcomeUnknown || NativeNutritionSheet.hasUnknownSave(this, baseUrl)) {
+            Toast.makeText(this, "请先核对上次保存，在“我的”或“热量与饮食”确认后再更换工作台。", Toast.LENGTH_LONG).show(); return;
         }
         if (bindingDialog != null && bindingDialog.isShowing()) return;
         EditText address = input("https://你的工作台域名", false);
@@ -1389,7 +1427,9 @@ public class MainActivity extends AppCompatActivity {
             .setPositiveButton(previousOrigin.isEmpty() ? "确认连接" : "确认更换", (d, which) -> {
                 if (isFinishing() || isDestroyed()) return;
                 if (!previousOrigin.equals(baseUrl) || bindingChanging || saving || syncing
-                        || saveOutcomeUnknown || (aiSheet != null && aiSheet.isBusy())) {
+                        || saveOutcomeUnknown || (aiSheet != null && aiSheet.isBusy())
+                        || NativeNutritionSheet.hasUnknownSave(this, baseUrl)
+                        || (nutritionSheet != null && nutritionSheet.isBusy())) {
                     Toast.makeText(this, "工作台状态已变化，请等待当前操作结束后重新确认。", Toast.LENGTH_LONG).show();
                     return;
                 }
@@ -1405,6 +1445,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void bindWorkbench(String origin) {
         bindingChanging = true;
+        if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
         bridgeReady = false; mobileApi.close();
         if (authWebView != null) {
@@ -1577,7 +1618,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume(); clockHandler.removeCallbacks(clockTick); clockHandler.post(clockTick);
-        if (data != null && bridgeReady && !saving && (aiSheet == null || !aiSheet.isBusy())) sync();
+        if (data != null && bridgeReady && !saving && (aiSheet == null || !aiSheet.isBusy())
+            && (nutritionSheet == null || !nutritionSheet.isBusy())) sync();
     }
     @Override protected void onPause() {
         clockHandler.removeCallbacks(clockTick); super.onPause();
@@ -1586,6 +1628,7 @@ public class MainActivity extends AppCompatActivity {
         cancelScheduleFilter();
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
+        if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
@@ -1596,3 +1639,4 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
+

@@ -1,9 +1,9 @@
 apply plugin: 'com.android.application'
 
-def releaseKeystore = file('release.keystore')
+def releaseKeystoreFile = file('release.keystore')
 def releaseStorePassword = System.getenv('RICHANGYU_ANDROID_KEYSTORE_PASSWORD') ?: ''
 def releaseKeyPassword = System.getenv('RICHANGYU_ANDROID_KEY_PASSWORD') ?: ''
-def hasReleaseSigning = releaseKeystore.exists() && releaseStorePassword && releaseKeyPassword
+def hasReleaseSigning = releaseKeystoreFile.exists() && releaseStorePassword && releaseKeyPassword
 
 def previewKeystore = file('preview.keystore')
 def previewStorePassword = System.getenv('RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD') ?: ''
@@ -15,22 +15,24 @@ if ((previewKeystore.exists() || previewStorePassword || previewKeyPassword) && 
 }
 
 android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
     namespace "com.richangyu.lifeworkbench"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.richangyu.lifeworkbench"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10009
-        versionName "1.8.7"
+        versionCode 10010
+        versionName "1.8.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
-    }
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
     }
     signingConfigs {
         if (hasPreviewSigning) {
@@ -43,7 +45,7 @@ android {
         }
         if (hasReleaseSigning) {
             release {
-                storeFile releaseKeystore
+                storeFile releaseKeystoreFile
                 storePassword releaseStorePassword
                 keyAlias 'upload'
                 keyPassword releaseKeyPassword
@@ -55,17 +57,34 @@ android {
             if (hasPreviewSigning) signingConfig signingConfigs.preview
             applicationIdSuffix ".preview"
             versionNameSuffix "-preview"
-            resValue "string", "app_name", "\u751f\u6d3b\u5de5\u4f5c\u53f0 \u00b7 \u9884\u89c8"
+            resValue "string", "app_name", "生活工作台 · 预览"
         }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (hasReleaseSigning) signingConfig signingConfigs.release
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
-    sourceSets { main { assets.srcDirs = [] } }
+    // Native screens do not need copied web server/client or hosting metadata.
+    sourceSets {
+        main {
+            assets.srcDirs = []
+        }
+    }
 }
-tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
@@ -75,4 +94,14 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}
+
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

@@ -33,7 +33,7 @@ final class WorkbenchClientPolicy {
         } catch (Exception ignored) { return ""; }
     }
     static boolean allowsEndpoint(String path, boolean write) {
-        if ("/api/mobile".equals(path) || "/api/assistant".equals(path)) return true;
+        if ("/api/mobile".equals(path) || "/api/assistant".equals(path) || "/api/nutrition".equals(path)) return true;
         return !write && ("/api/assistant?days=1".equals(path)
             || "/api/assistant?days=7".equals(path) || "/api/assistant?days=30".equals(path));
     }

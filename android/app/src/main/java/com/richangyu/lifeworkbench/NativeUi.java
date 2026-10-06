@@ -226,6 +226,13 @@ final class NativeUi {
             paint.setStrokeWidth(1.7f); paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
             path.reset();
             switch (kind) {
+                case "nutrition":
+                    path.moveTo(12, 2); path.cubicTo(17, 7, 19, 10, 19, 14);
+                    path.cubicTo(19, 19, 16, 22, 12, 22);
+                    path.cubicTo(8, 22, 5, 19, 5, 14);
+                    path.cubicTo(5, 11, 7, 8, 9, 7);
+                    path.lineTo(9, 13); path.cubicTo(13, 10, 13, 6, 12, 2);
+                    canvas.drawPath(path, paint); break;
                 case "home":
                     path.moveTo(3, 10); path.lineTo(12, 3); path.lineTo(21, 10);
                     canvas.drawPath(path, paint);

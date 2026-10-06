@@ -60,6 +60,19 @@ final class MobileApiBridge {
     }
     void request(JSONObject payload, Callback callback) { request("/api/mobile", payload, callback); }
     void request(String endpoint, JSONObject payload, Callback callback) {
+        requestInternal(endpoint, payload, false, callback);
+    }
+    void requestNutritionMeal(JSONObject fields, Callback callback) {
+        if (fields == null) { callback.complete(error(400, "餐食字段无效。", "/api/nutrition")); return; }
+        java.util.Iterator<String> keys = fields.keys();
+        while (keys.hasNext()) {
+            if (!WorkbenchNutritionPolicy.allowsMealField(keys.next())) {
+                callback.complete(error(400, "餐食字段不被允许。", "/api/nutrition")); return;
+            }
+        }
+        requestInternal("/api/nutrition", fields, true, callback);
+    }
+    private void requestInternal(String endpoint, JSONObject payload, boolean multipart, Callback callback) {
         if (!WorkbenchClientPolicy.allowsEndpoint(endpoint, payload != null)) {
             callback.complete(error(400, "不允许访问这个工作台接口。", "/api/mobile")); return;
         }
@@ -79,6 +92,11 @@ final class MobileApiBridge {
             ? "{method:'GET',headers:{Accept:'application/json'},credentials:'include',cache:'no-store',signal:controller.signal}"
             : "{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},credentials:'include',cache:'no-store',signal:controller.signal,body:"
                 + JSONObject.quote(payload.toString()) + "}";
+        if (multipart) {
+            String form = "(()=>{const data=JSON.parse(" + JSONObject.quote(payload.toString()) +
+                ");const form=new FormData();for(const [key,value] of Object.entries(data))form.append(key,String(value));return form;})()";
+            options = "{method:'POST',headers:{Accept:'application/json'},credentials:'include',cache:'no-store',signal:controller.signal,body:" + form + "}";
+        }
         String script = "(()=>{if(location.origin!==" + JSONObject.quote(origin)
             + "||!window." + OBJECT_NAME + ")return 'not-ready';const id=" + JSONObject.quote(id)
             + ";const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),"

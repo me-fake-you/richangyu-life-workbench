@@ -21,6 +21,10 @@ public class WorkbenchClientPolicyTest {
     @Test public void endpointAllowlistRejectsOtherPathsAndWriteQueries() {
         assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/mobile", true));
         assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/assistant", true));
+        assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/nutrition", true));
+        assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/nutrition", false));
+        assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/nutrition?x=1", false));
+        assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/nutrition/", true));
         for (int day : new int[] {1, 7, 30}) {
             assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/assistant?days=" + day, false));
             assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/assistant?days=" + day, true));
