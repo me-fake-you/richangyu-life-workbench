@@ -1,5 +1,6 @@
 import {
   configuredAiProvider,
+  visionConfiguration,
   generateProviderText,
 } from "../../../lib/ai-provider";
 import { buildAiTransparency } from "../../../lib/ai-analysis";
@@ -85,6 +86,7 @@ export async function GET() {
   return Response.json({
     provider: configuredAiProvider(),
     supportsVision: configuredAiProvider("vision") !== "local",
+    vision: visionConfiguration(),
   });
 }
 

@@ -1,5 +1,7 @@
 import {
   analyzeMealWithVision,
+  visionConfiguration,
+  checkVisionConnection,
   estimateMealFromDescription,
   type MealEstimate,
 } from "../../../lib/ai-provider";
@@ -75,6 +77,7 @@ async function applyFoodMemory(DB: D1Database, estimate: MealEstimate) {
     ...estimate,
     provider: "local",
     model: "个人食物记忆",
+    source: estimate.source === "vision" ? "vision+memory" : "text+memory",
     confidence: Math.max(estimate.confidence, 0.82),
     summary: `${estimate.summary} 已参考 ${matched} 条你曾经修正过的同类食物。`,
     items,
@@ -259,6 +262,7 @@ export async function GET() {
       ]),
     );
     return Response.json({
+      aiVision: visionConfiguration(),
       meals: (meals.results as JsonObject[]).map((row) => ({
         id: row.id,
         mealType: row.meal_type,
@@ -310,9 +314,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const candidate = await request.clone().json() as JsonObject | null;
+      if (candidate?.action === "vision.check") {
+        return Response.json({ visionCheck: await checkVisionConnection() },
+          { headers: { "cache-control": "no-store" } });
+      }
+    }
     await ensureAdvancedSchema();
     const { DB, MEDIA } = getLifeBindings();
-    const contentType = request.headers.get("content-type") ?? "";
 
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -331,10 +342,12 @@ export async function POST(request: Request) {
       }
 
       let estimate = estimateMealFromDescription(note);
-      let manualOverride = false;
+      const manualCalories = numeric(form.get("calories"));
+      const manualOverride = manualCalories > 0;
       let photoBytes: ArrayBuffer | null = null;
       if (photo) {
         photoBytes = await photo.arrayBuffer();
+        if (!manualOverride) {
         try {
           estimate =
             (await analyzeMealWithVision({
@@ -352,13 +365,14 @@ export async function POST(request: Request) {
         }
       }
 
-      const manualCalories = numeric(form.get("calories"));
-      if (manualCalories > 0) {
-        manualOverride = true;
+      }
+
+      if (manualOverride) {
         estimate = {
           ...estimate,
           provider: "local",
           model: "手动修正",
+          source: "manual",
           calories: manualCalories,
           proteinG: numeric(form.get("proteinG")),
           carbsG: numeric(form.get("carbsG")),

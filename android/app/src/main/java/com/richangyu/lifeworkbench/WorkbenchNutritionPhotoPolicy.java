@@ -27,9 +27,15 @@ final class WorkbenchNutritionPhotoPolicy {
             && (bytes[0] & 255) == 255 && (bytes[1] & 255) == 216
             && (bytes[bytes.length - 2] & 255) == 255 && (bytes[bytes.length - 1] & 255) == 217;
     }
+    static String estimateSource(boolean manual, String provider, String source) {
+        if (manual || "manual".equals(source)) return "manual";
+        if ("vision".equals(source) || "vision+memory".equals(source)) return "vision";
+        if ("text".equals(source) || "text+memory".equals(source)) return "text";
+        return estimateSource(false, provider);
+    }
     static String estimateSource(boolean manual, String provider) {
         if (manual) return "manual";
-        if ("openai".equals(provider) || "nvidia".equals(provider)) return "vision";
+        if ("openai".equals(provider) || "nvidia".equals(provider) || "groq".equals(provider)) return "vision";
         if ("local".equals(provider)) return "text";
         return "unknown";
     }

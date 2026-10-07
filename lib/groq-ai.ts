@@ -87,6 +87,91 @@ export async function generateGroqText({
   return { text, provider: "groq" as const, model };
 }
 
+
+export function groqVisionModel() {
+  return setting("GROQ_VISION_MODEL");
+}
+
+export function groqVisionConfigured() {
+  // Vision is an explicit opt-in, separate from the existing text model.
+  return groqConfigured() && groqVisionModel() === "qwen/qwen3.8-27b";
+}
+
+export async function generateGroqVision({
+  bytes, contentType, prompt, maxTokens = 1800,
+}: {
+  bytes: ArrayBuffer;
+  contentType: string;
+  prompt: string;
+  maxTokens?: number;
+}) {
+  if (!groqVisionConfigured()) {
+    throw new GroqError("Groq 图片模型尚未启用或配置的模型不支持图片。", 503);
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(contentType) ||
+      bytes.byteLength === 0 || bytes.byteLength > 8 * 1024 * 1024 || prompt.length > 4000) {
+    throw new GroqError("图片需为 8MB 内的 JPEG、PNG 或 WebP，补充说明请保持简短。", 413);
+  }
+  let base: URL;
+  try { base = new URL(setting("GROQ_BASE_URL") || "https://api.groq.com/openai/v1"); }
+  catch { throw new GroqError("Groq 图片服务地址配置有误。", 503); }
+  if (base.protocol !== "https:" || base.hostname !== "api.groq.com" ||
+      base.pathname.replace(/\/$/, "") !== "/openai/v1" ||
+      base.port && base.port !== "443" || base.username || base.password || base.search || base.hash) {
+    throw new GroqError("Groq 图片服务地址配置有误。", 503);
+  }
+  const model = groqVisionModel();
+  const signal = AbortSignal.timeout(90_000);
+  let response: Response;
+  try {
+    response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST", signal,
+      headers: { authorization: `Bearer ${setting("GROQ_API_KEY")}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}` } },
+        ] }],
+        temperature: 0.7, reasoning_effort: "none", reasoning_format: "hidden",
+        max_completion_tokens: Math.min(2300, Math.max(300, maxTokens)),
+        response_format: { type: "json_object" }, stream: false,
+      }),
+    });
+  } catch {
+    throw new GroqError("图片 AI 连接失败或超时，未取得识别结果。", 504);
+  }
+  if (!response.ok) {
+    if (response.status === 429) {
+      const raw = response.headers.get("retry-after");
+      const seconds = raw && /^\d+(\.\d+)?$/.test(raw)
+        ? Number(raw) : raw ? Math.ceil((Date.parse(raw) - Date.now()) / 1000) : 60;
+      throw new GroqError("Groq 图片额度或频率达到限制，暂用文字估算；不会切换付费服务。", 429,
+        Number.isFinite(seconds) ? Math.min(86400, Math.max(10, seconds)) : 60);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new GroqError("Groq 图片连接凭据或模型权限不可用，请联系管理员。", 503);
+    }
+    if (response.status === 404) {
+      throw new GroqError("Groq 图片预览模型未开放或已下线，请联系管理员更新模型配置。", 503);
+    }
+    throw new GroqError("Groq 图片服务未接受本次请求，未取得识别结果。", 503);
+  }
+  try {
+    const payload = await response.json() as {
+      choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>;
+    };
+    const choice = payload.choices?.[0];
+    const text = typeof choice?.message?.content === "string" ? choice.message.content.trim() : "";
+    if (choice?.finish_reason === "length" || !text || text.length > 16000) {
+      throw new Error("Invalid vision response");
+    }
+    return { text, provider: "groq" as const, model };
+  } catch {
+    throw new GroqError("图片 AI 没有返回完整、可用的结果，未当作识别成功。", 502);
+  }
+}
+
 async function signingKey() {
   const secret = setting("GROQ_API_KEY");
   if (!secret) throw new GroqError("免费 AI 尚未连接。", 503);

@@ -95,11 +95,12 @@ final class MobileApiBridge {
         String photoKey = photo == null ? "" : "__richangyuMealPhoto_" + id.replace("-", "");
         boolean generation = payload != null && "/api/assistant".equals(endpoint)
             && ("chat".equals(payload.optString("action")) || "plan".equals(payload.optString("action")));
-        Runnable timeout = () -> finishError(id, generation ? "AI 整理超时，尚未保存，请稍后重试。"
+        boolean visionCheck = payload != null && "/api/nutrition".equals(endpoint) && "vision.check".equals(payload.optString("action"));
+        Runnable timeout = () -> finishError(id, visionCheck ? "图片连接检查超时，本次没有保存餐食。" : generation ? "AI 整理超时，尚未保存，请稍后重试。"
             : payload == null ? "连接超时，请检查网络后重试。"
             : "保存响应超时，结果尚不确定。请先同步核对，不要直接重复保存。");
         pending.put(id, new Pending(callback, timeout, endpoint, photoKey));
-        handler.postDelayed(timeout, generation ? 260000 : photo != null ? WorkbenchNutritionPhotoPolicy.RESPONSE_TIMEOUT_MS : 32000);
+        handler.postDelayed(timeout, generation ? 260000 : photo != null || visionCheck ? WorkbenchNutritionPhotoPolicy.RESPONSE_TIMEOUT_MS : 32000);
         String options = payload == null
             ? "{method:'GET',headers:{Accept:'application/json'},credentials:'include',cache:'no-store',signal:controller.signal}"
             : "{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json'},credentials:'include',cache:'no-store',signal:controller.signal,body:"
@@ -119,7 +120,7 @@ final class MobileApiBridge {
         String script = "(()=>{if(location.origin!==" + JSONObject.quote(origin)
             + "||!window." + OBJECT_NAME + ")return 'not-ready';const id=" + JSONObject.quote(id)
             + ";const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),"
-            + (generation ? 250000 : photo != null ? WorkbenchNutritionPhotoPolicy.FETCH_TIMEOUT_MS : 25000) + ");"
+            + (generation ? 250000 : photo != null || visionCheck ? WorkbenchNutritionPhotoPolicy.FETCH_TIMEOUT_MS : 25000) + ");"
             + "const send=envelope=>window." + OBJECT_NAME + ".postMessage(JSON.stringify({...envelope,requestId:id}));"
             + "try{fetch(" + JSONObject.quote(endpoint) + "," + options + ").then(async response=>{const body=await response.text();"
             + "if(body.length>1000000)throw new Error('response-too-large');"

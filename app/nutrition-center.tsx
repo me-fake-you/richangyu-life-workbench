@@ -53,6 +53,7 @@ type Meal = {
 };
 
 type NutritionData = {
+  aiVision?: { provider: string; model: string; configured: boolean; verified: boolean; message: string };
   meals: Meal[];
   memoryCount: number;
   settings: {
@@ -189,12 +190,15 @@ export function NutritionCenter({
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [checkingVision, setCheckingVision] = useState(false);
+  const [visionCheck, setVisionCheck] = useState<{ state: string; message: string; checkedAt: string } | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [manual, setManual] = useState(false);
   const [lastEstimate, setLastEstimate] = useState<{
     summary: string;
     provider: string;
+    source?: string;
     confidence: number;
     calories: number;
   } | null>(null);
@@ -299,6 +303,7 @@ export function NutritionCenter({
         estimate?: {
           summary: string;
           provider: string;
+          source?: string;
           confidence: number;
           calories: number;
         };
@@ -310,15 +315,32 @@ export function NutritionCenter({
       setManual(false);
       await load();
       onNotice(
-        result.estimate?.provider === "local"
-          ? "餐食已记录；当前使用文字或手动估算。"
-          : "餐食照片识别完成，热量已加入今日摄入。",
+        result.estimate?.source?.startsWith("vision")
+          ? "餐食已记录；图片 AI 返回了参考估算，请核对份量。"
+          : "餐食已记录；使用文字、食物记忆或手动值，不代表照片识别成功。",
       );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "保存餐食失败。");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function checkImageAI() {
+    if (checkingVision || !window.confirm("将向 Groq 发送一张非私人测试图，消耗少量现有额度；不会上传你的照片或保存餐食。继续检查？")) return;
+    setCheckingVision(true);
+    setVisionCheck(null);
+    try {
+      const response = await fetch("/api/nutrition", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "vision.check" }), signal: AbortSignal.timeout(120_000),
+      });
+      const result = await response.json() as { visionCheck?: { state: string; message: string; checkedAt: string }; error?: string };
+      if (!response.ok || !result.visionCheck) throw new Error(result.error || "未取得图片连接检查结果。");
+      setVisionCheck(result.visionCheck);
+    } catch {
+      onNotice("图片连接检查未完成，本次没有保存餐食；请稍后再试。");
+    } finally { setCheckingVision(false); }
   }
 
   async function nutritionAction(
@@ -449,6 +471,20 @@ export function NutritionCenter({
         </button>
       </div>
 
+      <section className="nutrition-disclaimer" aria-live="polite" style={{ marginBottom: 18, flexWrap: "wrap" }}>
+        <Sparkles size={18} />
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+          <strong>{data.aiVision?.configured ? "图片 AI 已配置，需核实实时连接" : "图片 AI 尚未启用"}</strong>
+          <p>{data.aiVision?.message || "旧工作台未提供图片状态，不能据此认定识别可用。"}</p>
+          {data.aiVision?.model && <small style={{ overflowWrap: "anywhere" }}>{data.aiVision.provider.toUpperCase()} · {data.aiVision.model}</small>}
+          <p>有免费额度与频率限制；不自动转用付费服务。手动填写营养值时不调用图片 AI。</p>
+          {visionCheck && <p>{visionCheck.state === "verified" ? "本次检查通过" : "本次检查未通过"} · {visionCheck.message}<br />检查时间：{new Date(visionCheck.checkedAt).toLocaleString("zh-CN")}</p>}
+        </div>
+        <button type="button" className="secondary-button" disabled={checkingVision || !data.aiVision?.configured || data.aiVision.provider !== "groq"} onClick={checkImageAI}>
+          {checkingVision ? "正在检查图片 AI…" : "检查图片 AI 连接"}
+        </button>
+      </section>
+
       <div className="nutrition-datebar">
         <button onClick={() => setSelectedDate(addDays(selectedDate, -1))}>
           <ChevronLeft size={17} />
@@ -533,9 +569,9 @@ export function NutritionCenter({
           <Sparkles size={17} />
           <div>
             <strong>
-              {lastEstimate.provider === "local"
-                ? "本地估算"
-                : `${lastEstimate.provider.toUpperCase()} 照片识别`}
+              {lastEstimate.source === "vision+memory" ? "图片估算 + 个人食物记忆"
+                : lastEstimate.source === "vision" ? `${lastEstimate.provider.toUpperCase()} 图片参考估算`
+                : lastEstimate.source === "manual" ? "手动营养值" : "文字 / 食物记忆估算"}
             </strong>
             <p>{lastEstimate.summary}</p>
             <small>

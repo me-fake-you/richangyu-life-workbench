@@ -50,8 +50,9 @@ final class NativeNutritionSheet {
     private AlertDialog dialog, editor, uploadConfirmation, resultDialog;
     private LinearLayout content;
     private TextView status;
-    private Button dateButton, previous, next, refresh, addMeal, addWater, addPhotoMeal;
-    private JSONObject snapshot;
+    private Button dateButton, previous, next, refresh, addMeal, addWater, addPhotoMeal, visionCheckButton;
+    private JSONObject snapshot, visionCheckResult;
+    private boolean checkingVision;
     private boolean closed, loading, writing, pickingPhoto, loaded, verifiedUnknown;
     NativeNutritionSheet(Activity activity, MobileApiBridge api, String origin, Host host) {
         this.activity = activity; this.api = api; this.origin = origin; this.host = host;
@@ -66,7 +67,7 @@ final class NativeNutritionSheet {
         preferences.edit().putBoolean("nutrition_unknown:" + origin, value).commit();
         if (value) verifiedUnknown = false;
     }
-    boolean isBusy() { return loading || writing || pickingPhoto; }
+    boolean isBusy() { return loading || writing || pickingPhoto || checkingVision; }
     private int dp(int value) { return NativeUi.dp(activity, value); }
     private TextView label(String value, int size, int ink) {
         return NativeUi.label(activity, value, size, ink, false);
@@ -160,6 +161,9 @@ final class NativeNutritionSheet {
         refresh.setEnabled(!busy);
         boolean allowed = loaded && !busy && !unknown() && !host.writesBlocked();
         addMeal.setEnabled(allowed); addWater.setEnabled(allowed); addPhotoMeal.setEnabled(allowed);
+        if (visionCheckButton != null) visionCheckButton.setEnabled(loaded && !busy && snapshot != null
+            && snapshot.optJSONObject("aiVision") != null && snapshot.optJSONObject("aiVision").optBoolean("configured")
+            && "groq".equals(snapshot.optJSONObject("aiVision").optString("provider")));
         dateButton.setText(new SimpleDateFormat("M\u6708d\u65e5", Locale.CHINA).format(selected.getTime()));
     }
     private String day() { return WorkbenchNutritionPolicy.dayKey(selected.getTime(), TimeZone.getDefault()); }
@@ -243,6 +247,7 @@ final class NativeNutritionSheet {
             content.addView(empty); return;
         }
         if (!loaded) content.addView(label("\u4ee5\u4e0b\u662f\u4e0a\u6b21\u8bfb\u53d6\u7684\u6570\u636e\uff1b\u672c\u6b21\u5c1a\u672a\u540c\u6b65\u6210\u529f\u3002", 12, NativeUi.ROSE));
+        renderVisionStatus();
         double calories = 0, protein = 0, carbs = 0, fat = 0, glasses = 0;
         JSONArray meals = snapshot.optJSONArray("meals"), water = snapshot.optJSONArray("water");
         for (int i = 0; i < meals.length(); i++) {
@@ -546,10 +551,65 @@ final class NativeNutritionSheet {
         };
         if(multipart)api.requestNutritionMeal(payload,photo,callback);else api.request(ENDPOINT,payload,callback);
     }
+
+    private void renderVisionStatus() {
+        JSONObject config = snapshot.optJSONObject("aiVision");
+        boolean configured = config != null && config.optBoolean("configured");
+        LinearLayout aiCard = card();
+        aiCard.addView(label(configured ? "\u56fe\u7247 AI \u5df2\u914d\u7f6e" : "\u56fe\u7247 AI \u72b6\u6001\u5f85\u786e\u8ba4", 17, NativeUi.FOREST));
+        String message = config == null ? "\u65e7\u5de5\u4f5c\u53f0\u672a\u63d0\u4f9b\u56fe\u7247\u72b6\u6001\uff0c\u4e0d\u80fd\u8ba4\u5b9a\u56fe\u7247\u8bc6\u522b\u53ef\u7528\u3002"
+            : config.optString("message", "\u914d\u7f6e\u4e0d\u4ee3\u8868\u5b9e\u65f6\u53ef\u7528\u3002");
+        aiCard.addView(label(message, 13, NativeUi.MUTED));
+        if (config != null && !config.optString("model").isEmpty()) {
+            String model = config.optString("model");
+            aiCard.addView(label(config.optString("provider").toUpperCase(Locale.ROOT) + " / "
+                + model.substring(0, Math.min(100, model.length())), 12, NativeUi.MUTED));
+        }
+        aiCard.addView(label("\u6709\u989d\u5ea6\u4e0e\u9891\u7387\u9650\u5236\uff0c\u4e0d\u81ea\u52a8\u8f6c\u7528\u4ed8\u8d39\u670d\u52a1\uff1b\u624b\u52a8\u586b\u8425\u517b\u503c\u65f6\u4e0d\u8c03\u7528\u56fe\u7247 AI\u3002", 12, NativeUi.MUTED));
+        if (visionCheckResult != null) {
+            aiCard.addView(label("verified".equals(visionCheckResult.optString("state")) ? "\u672c\u6b21\u8fde\u63a5\u68c0\u67e5\u901a\u8fc7" : "\u672c\u6b21\u8fde\u63a5\u68c0\u67e5\u672a\u901a\u8fc7", 14, NativeUi.INK));
+            String detail = visionCheckResult.optString("message");
+            aiCard.addView(label(detail.substring(0, Math.min(600, detail.length())), 13, NativeUi.MUTED));
+            aiCard.addView(label("\u68c0\u67e5\u65f6\u95f4\uff1a" + visionCheckResult.optString("checkedAt"), 11, NativeUi.MUTED));
+        }
+        visionCheckButton = button(checkingVision ? "\u6b63\u5728\u68c0\u67e5\u56fe\u7247 AI\u2026" : "\u68c0\u67e5\u56fe\u7247 AI \u8fde\u63a5", false, this::confirmVisionCheck);
+        visionCheckButton.setEnabled(loaded && !isBusy() && configured && "groq".equals(config.optString("provider")));
+        aiCard.addView(visionCheckButton); content.addView(aiCard);
+    }
+    private void confirmVisionCheck() {
+        if (!loaded || isBusy()) return;
+        new AlertDialog.Builder(activity).setTitle("\u68c0\u67e5\u56fe\u7247 AI \u8fde\u63a5")
+            .setMessage("\u53ea\u5411 Groq \u53d1\u9001\u4e00\u5f20\u975e\u79c1\u4eba\u6d4b\u8bd5\u56fe\uff0c\u6d88\u8017\u5c11\u91cf\u73b0\u6709\u989d\u5ea6\u3002\u4e0d\u4e0a\u4f20\u4f60\u7684\u7167\u7247\uff0c\u4e0d\u4fdd\u5b58\u9910\u98df\u6216\u5176\u4ed6\u8bb0\u5f55\u3002")
+            .setNegativeButton("\u53d6\u6d88", null).setPositiveButton("\u5f00\u59cb\u68c0\u67e5", (d, which) -> checkVision()).show();
+    }
+    private void checkVision() {
+        if (closed || !loaded || isBusy()) return;
+        try {
+            checkingVision = true; visionCheckResult = null; render();
+            api.request(ENDPOINT, new JSONObject().put("action", "vision.check"), envelope -> {
+                if (closed) return;
+                checkingVision = false;
+                if (needsAuth(envelope)) { close(); host.onAuthRequired(); return; }
+                try {
+                    if (envelope.optInt("status") != 200 ||
+                        !WorkbenchNutritionPolicy.expectedResponse(envelope.optString("url"), origin) ||
+                        !WorkbenchNutritionPolicy.jsonType(envelope.optString("type"))) throw new IllegalArgumentException("invalid response");
+                    JSONObject result = new JSONObject(envelope.optString("body")).optJSONObject("visionCheck");
+                    if (result == null || result.optString("checkedAt").isEmpty() ||
+                        (!"verified".equals(result.optString("state")) && !"unavailable".equals(result.optString("state"))
+                            && !"not-configured".equals(result.optString("state")))) throw new IllegalArgumentException("invalid check");
+                    visionCheckResult = result;
+                } catch (Exception ignored) { notice("\u56fe\u7247\u8fde\u63a5\u68c0\u67e5\u672a\u5b8c\u6210\uff0c\u672c\u6b21\u6ca1\u6709\u4fdd\u5b58\u9910\u98df\u3002\u65e7\u5de5\u4f5c\u53f0\u53ef\u80fd\u5c1a\u672a\u66f4\u65b0\u3002"); }
+                render();
+            });
+        } catch (Exception ignored) { checkingVision = false; render(); notice("\u65e0\u6cd5\u53d1\u8d77\u56fe\u7247\u8fde\u63a5\u68c0\u67e5\u3002"); }
+    }
+
     private void showPhotoReceipt(JSONObject receipt, boolean manual) {
         JSONObject estimate = receipt == null ? null : receipt.optJSONObject("estimate");
         String provider = estimate == null ? "" : estimate.optString("provider");
-        String source = WorkbenchNutritionPhotoPolicy.estimateSource(manual, provider);
+        String source = WorkbenchNutritionPhotoPolicy.estimateSource(manual, provider,
+            estimate == null ? "" : estimate.optString("source"));
         String title = "vision".equals(source) ? "\u7167\u7247\u5df2\u4fdd\u5b58 \u00b7 \u8bf7\u6838\u5bf9\u8bc6\u522b\u4f30\u7b97" :
             "manual".equals(source) ? "\u7167\u7247\u5df2\u4fdd\u5b58 \u00b7 \u4f7f\u7528\u624b\u52a8\u8425\u517b\u503c" :
             "text".equals(source) ? "\u7167\u7247\u5df2\u4fdd\u5b58 \u00b7 \u5f53\u524d\u4e3a\u6587\u5b57\u4f30\u7b97" : "\u9910\u98df\u5df2\u4fdd\u5b58 \u00b7 \u6765\u6e90\u5f85\u6838\u5bf9";
@@ -558,6 +618,8 @@ final class NativeNutritionSheet {
             "text".equals(source) ? "\u672a\u83b7\u5f97\u56fe\u7247 AI \u8bc6\u522b\u7ed3\u679c\uff0c\u4f7f\u7528\u6587\u5b57\u548c\u5185\u7f6e\u98df\u7269\u5e93\u4f30\u7b97\uff0c\u4e0d\u80fd\u5f53\u6210\u7167\u7247\u8bc6\u522b\u6210\u529f\u3002" :
             "\u672a\u786e\u8ba4\u4f30\u7b97\u6765\u6e90\uff0c\u8bf7\u540c\u6b65\u540e\u6838\u5bf9\u8bb0\u5f55\u3002";
         if (estimate != null) {
+            String model = estimate.optString("model");
+            if (!model.isEmpty()) detail += "\n"+model.substring(0, Math.min(100, model.length()));
             double calories = estimate.optDouble("calories", Double.NaN);
             if (WorkbenchNutritionPolicy.validMetric(calories)) detail += "\n\u53c2\u8003\u70ed\u91cf\uff1a" + amount(calories) + " \u5343\u5361";
             String summary = estimate.optString("summary");
