@@ -37,6 +37,7 @@ final class NativeNutritionSheet {
         void pickPhoto(boolean camera, NativeNutritionPhotoPicker.Callback callback);
         void onAuthRequired();
         void onClosed();
+        default void onDiagnosticReport(String report) {}
     }
     private interface PhotoChoice { void pick(boolean useCamera); }
     private static final String ENDPOINT = "/api/nutrition";
@@ -47,12 +48,14 @@ final class NativeNutritionSheet {
     private final String origin;
     private final SharedPreferences preferences;
     private final Calendar selected = Calendar.getInstance();
-    private AlertDialog dialog, editor, uploadConfirmation, resultDialog;
+    private AlertDialog dialog, editor, uploadConfirmation, resultDialog, diagnosticDialog;
     private LinearLayout content;
     private TextView status;
     private Button dateButton, previous, next, refresh, addMeal, addWater, addPhotoMeal, visionCheckButton;
     private JSONObject snapshot, visionCheckResult;
     private boolean checkingVision;
+    private String nutritionReadState = "not-started", visionDiagnosticState = "not-checked";
+    private int nutritionReadHttpStatus, visionDiagnosticHttpStatus;
     private boolean closed, loading, writing, pickingPhoto, loaded, verifiedUnknown;
     NativeNutritionSheet(Activity activity, MobileApiBridge api, String origin, Host host) {
         this.activity = activity; this.api = api; this.origin = origin; this.host = host;
@@ -140,7 +143,9 @@ final class NativeNutritionSheet {
     void close() {
         if (closed) return;
         if (writing) markUnknown(true);
+        host.onDiagnosticReport(diagnosticReport());
         closed = true;
+        if (diagnosticDialog != null) diagnosticDialog.dismiss();
         if (uploadConfirmation != null) uploadConfirmation.dismiss();
         if (resultDialog != null) resultDialog.dismiss();
         if (editor != null) editor.dismiss();
@@ -193,22 +198,26 @@ final class NativeNutritionSheet {
     }
     private void load() {
         if (closed || isBusy()) return;
+        nutritionReadState = "loading";
         loading = true; loaded = false; status.setText("\u6b63\u5728\u540c\u6b65\u996e\u98df\u8bb0\u5f55\u2026"); controls();
         api.request(ENDPOINT, null, envelope -> {
             if (closed) return;
             loading = false;
-            if (needsAuth(envelope)) { close(); host.onAuthRequired(); return; }
+            nutritionReadHttpStatus = envelope.optInt("status");
+            if (needsAuth(envelope)) { nutritionReadState = "authorization-required"; close(); host.onAuthRequired(); return; }
             if (envelope.optInt("status") != 200 || !WorkbenchNutritionPolicy.jsonType(envelope.optString("type"))) {
+                nutritionReadState = nutritionReadHttpStatus == 0 ? "no-http-result"
+                    : nutritionReadHttpStatus == 200 ? "invalid-response" : "http-error";
                 status.setText(error(envelope)); render(); return;
             }
             try {
                 JSONObject value = new JSONObject(envelope.optString("body"));
                 validateSnapshot(value);
-                snapshot = value; loaded = true;
+                snapshot = value; loaded = true; nutritionReadState = "ready";
                 verifiedUnknown = unknown();
                 status.setText(unknown() ? "\u4fdd\u5b58\u7ed3\u679c\u5f85\u6838\u5bf9\uff0c\u8bf7\u68c0\u67e5\u9910\u98df\u548c\u996e\u6c34\u540e\u786e\u8ba4\u3002" :
                     host.writesBlocked() ? "\u5176\u4ed6\u4fdd\u5b58\u7ed3\u679c\u5f85\u6838\u5bf9\uff1b\u8bf7\u5148\u5230\u201c\u6211\u7684\u201d\u786e\u8ba4\u3002" : "\u5df2\u540c\u6b65 \u00b7 \u65e5\u671f\u6309\u624b\u673a\u672c\u5730\u65f6\u533a\u663e\u793a");
-            } catch (Exception ignored) { status.setText("\u5de5\u4f5c\u53f0\u996e\u98df\u6570\u636e\u683c\u5f0f\u5f02\u5e38\uff0c\u672a\u5f53\u4f5c\u7a7a\u8bb0\u5f55\u663e\u793a\u3002"); }
+            } catch (Exception ignored) { nutritionReadState = "invalid-response"; status.setText("\u5de5\u4f5c\u53f0\u996e\u98df\u6570\u636e\u683c\u5f0f\u5f02\u5e38\uff0c\u672a\u5f53\u4f5c\u7a7a\u8bb0\u5f55\u663e\u793a\u3002"); }
             render();
         });
     }
@@ -240,6 +249,11 @@ final class NativeNutritionSheet {
     private void render() {
         if (closed) return;
         content.removeAllViews(); controls();
+        LinearLayout diagnostics = card();
+        diagnostics.addView(label("\u8fde\u63a5\u95ee\u9898\u53cd\u9988", 16, NativeUi.INK));
+        diagnostics.addView(label("\u5148\u9884\u89c8\u518d\u590d\u5236\uff0c\u4e0d\u5305\u542b\u8d26\u53f7\u3001\u7f51\u5740\u3001\u7167\u7247\u6216\u8bb0\u5f55\u3002\u590d\u5236\u4e0d\u8054\u7f51\u3001\u4e0d\u4fdd\u5b58\u9910\u98df\u3002", 12, NativeUi.MUTED));
+        diagnostics.addView(button("\u590d\u5236\u8bca\u65ad\u4fe1\u606f", false, this::showDiagnostics));
+        content.addView(diagnostics);
         if (snapshot == null) {
             LinearLayout empty = card();
             empty.addView(label(loading ? "\u6b63\u5728\u8bfb\u53d6\u996e\u98df\u4e0e\u8425\u517b" : "\u6682\u672a\u8bfb\u53d6\u5230\u996e\u98df\u6570\u636e", 19, NativeUi.INK));
@@ -552,6 +566,23 @@ final class NativeNutritionSheet {
         if(multipart)api.requestNutritionMeal(payload,photo,callback);else api.request(ENDPOINT,payload,callback);
     }
 
+    private String diagnosticReport() {
+        JSONObject config = snapshot == null ? null : snapshot.optJSONObject("aiVision");
+        return WorkbenchDiagnosticReport.nutrition(NativeDiagnosticDialog.appVersion(activity),
+            android.os.Build.VERSION.SDK_INT, loaded, isBusy(), unknown(), nutritionReadState,
+            nutritionReadHttpStatus, config != null, config != null && config.optBoolean("configured"),
+            config == null ? "" : config.optString("provider"),
+            config == null ? "" : config.optString("model"), visionDiagnosticState,
+            visionDiagnosticHttpStatus, visionCheckResult == null ? 0 : visionCheckResult.optInt("retryAfter"));
+    }
+
+    private void showDiagnostics() {
+        if (closed || diagnosticDialog != null && diagnosticDialog.isShowing()) return;
+        String report = diagnosticReport();
+        host.onDiagnosticReport(report);
+        diagnosticDialog = NativeDiagnosticDialog.show(activity, report, () -> diagnosticDialog = null);
+    }
+
     private void renderVisionStatus() {
         JSONObject config = snapshot.optJSONObject("aiVision");
         boolean configured = config != null && config.optBoolean("configured");
@@ -585,24 +616,31 @@ final class NativeNutritionSheet {
     private void checkVision() {
         if (closed || !loaded || isBusy()) return;
         try {
-            checkingVision = true; visionCheckResult = null; render();
+            checkingVision = true; visionCheckResult = null;
+            visionDiagnosticState = "checking"; visionDiagnosticHttpStatus = 0; render();
             api.request(ENDPOINT, new JSONObject().put("action", "vision.check"), envelope -> {
                 if (closed) return;
                 checkingVision = false;
-                if (needsAuth(envelope)) { close(); host.onAuthRequired(); return; }
+                visionDiagnosticHttpStatus = envelope.optInt("status");
+                if (needsAuth(envelope)) { visionDiagnosticState = "authorization-required"; close(); host.onAuthRequired(); return; }
+                visionDiagnosticState = "invalid-response";
                 try {
                     if (envelope.optInt("status") != 200 ||
                         !WorkbenchNutritionPolicy.expectedResponse(envelope.optString("url"), origin) ||
-                        !WorkbenchNutritionPolicy.jsonType(envelope.optString("type"))) throw new IllegalArgumentException("invalid response");
+                        !WorkbenchNutritionPolicy.jsonType(envelope.optString("type"))) {
+                        visionDiagnosticState = visionDiagnosticHttpStatus == 0 ? "no-http-result"
+                            : visionDiagnosticHttpStatus == 200 ? "invalid-response" : "http-error";
+                        throw new IllegalArgumentException("invalid response");
+                    }
                     JSONObject result = new JSONObject(envelope.optString("body")).optJSONObject("visionCheck");
                     if (result == null || result.optString("checkedAt").isEmpty() ||
                         (!"verified".equals(result.optString("state")) && !"unavailable".equals(result.optString("state"))
                             && !"not-configured".equals(result.optString("state")))) throw new IllegalArgumentException("invalid check");
-                    visionCheckResult = result;
+                    visionCheckResult = result; visionDiagnosticState = result.optString("state");
                 } catch (Exception ignored) { notice("\u56fe\u7247\u8fde\u63a5\u68c0\u67e5\u672a\u5b8c\u6210\uff0c\u672c\u6b21\u6ca1\u6709\u4fdd\u5b58\u9910\u98df\u3002\u65e7\u5de5\u4f5c\u53f0\u53ef\u80fd\u5c1a\u672a\u66f4\u65b0\u3002"); }
                 render();
             });
-        } catch (Exception ignored) { checkingVision = false; render(); notice("\u65e0\u6cd5\u53d1\u8d77\u56fe\u7247\u8fde\u63a5\u68c0\u67e5\u3002"); }
+        } catch (Exception ignored) { checkingVision = false; visionDiagnosticState = "request-failed"; render(); notice("\u65e0\u6cd5\u53d1\u8d77\u56fe\u7247\u8fde\u63a5\u68c0\u67e5\u3002"); }
     }
 
     private void showPhotoReceipt(JSONObject receipt, boolean manual) {

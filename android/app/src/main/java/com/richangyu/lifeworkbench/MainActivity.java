@@ -72,6 +72,10 @@ public class MainActivity extends AppCompatActivity {
     private AlertDialog bindingConfirmation;
     private AlertDialog updateDialog;
     private NativeUpdateChecker updateChecker;
+    private AlertDialog diagnosticDialog;
+    private String connectionDiagnosticState = "not-started";
+    private int lastMobileHttpStatus;
+    private String lastNutritionDiagnostic = "";
     private static final int INK = NativeUi.INK;
     private static final int MUTED = NativeUi.MUTED;
     private static final int GREEN = NativeUi.FOREST;
@@ -665,6 +669,7 @@ public class MainActivity extends AppCompatActivity {
         Button changeBinding = secondaryButton("更换工作台");
         changeBinding.setOnClickListener(v -> showBinding());
         binding.addView(changeBinding);
+        binding.addView(diagnosticsButton());
         body.addView(binding);
         if (saveOutcomeUnknown) {
             LinearLayout uncertain = card();
@@ -722,6 +727,24 @@ public class MainActivity extends AppCompatActivity {
         catch (Exception ignored) { return "开发版"; }
     }
 
+
+    private Button diagnosticsButton() {
+        Button button = secondaryButton("复制诊断信息");
+        button.setOnClickListener(v -> showDiagnostics());
+        return button;
+    }
+
+    private void showDiagnostics() {
+        if (diagnosticDialog != null && diagnosticDialog.isShowing()) return;
+        String report = WorkbenchDiagnosticReport.connection(appVersion(), Build.VERSION.SDK_INT,
+            connectionDiagnosticState, !baseUrl.isEmpty(), bridgeReady, data != null, syncing,
+            saving, saveOutcomeUnknown || NativeNutritionSheet.hasUnknownSave(this, baseUrl),
+            lastMobileHttpStatus);
+        if (!lastNutritionDiagnostic.isEmpty()) {
+            report += "\nLast nutrition snapshot in this App session:\n" + lastNutritionDiagnostic;
+        }
+        diagnosticDialog = NativeDiagnosticDialog.show(this, report, () -> diagnosticDialog = null);
+    }
 
     private void showUpdateCheck() {
         if (saving || syncing || bindingChanging || (aiSheet != null && aiSheet.isBusy())) {
@@ -1187,16 +1210,20 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         syncing = true;
+        connectionDiagnosticState = "reading";
         syncLabel.setText("同步中");
         api("GET", null, envelope -> {
             syncing = false;
             int status = envelope.optInt("status");
+            lastMobileHttpStatus = status;
             if (needsAuth(envelope)) {
+                connectionDiagnosticState = "authorization-required";
                 syncLabel.setText("需要授权");
                 showAuth();
                 return;
             }
             if (status >= 400 || status == 0) {
+                connectionDiagnosticState = status == 0 ? "no-http-result" : "http-error";
                 syncLabel.setText("连接失败");
                 if (data == null) showError(responseError(envelope));
                 else Toast.makeText(this, responseError(envelope), Toast.LENGTH_LONG).show();
@@ -1209,11 +1236,13 @@ public class MainActivity extends AppCompatActivity {
                     throw new IllegalArgumentException("invalid mobile snapshot");
                 }
                 data = snapshot;
+                connectionDiagnosticState = "ready";
                 CookieManager.getInstance().flush();
                 syncLabel.setText(saveOutcomeUnknown ? "结果待核实" : "已同步");
                 closeAuth();
                 selectTab(tab);
             } catch (Exception error) {
+                connectionDiagnosticState = "invalid-response";
                 syncLabel.setText("数据异常");
                 showError("工作台返回的数据无法读取，请重新连接。");
             }
@@ -1264,6 +1293,7 @@ public class MainActivity extends AppCompatActivity {
         Button update = secondaryButton("检查 App 新版本");
         update.setOnClickListener(v -> showUpdateCheck());
         box.addView(update);
+        box.addView(diagnosticsButton());
         body.addView(box);
         scroll.addView(body);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
@@ -1286,6 +1316,7 @@ public class MainActivity extends AppCompatActivity {
                 nutritionPhotoPicker.pick(camera, callback);
             }
             @Override public void onAuthRequired() { showAuth(); }
+            @Override public void onDiagnosticReport(String report) { lastNutritionDiagnostic = report; }
             @Override public void onClosed() { nutritionSheet = null; }
         });
         nutritionSheet.show();
@@ -1311,6 +1342,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showBindingWelcome() {
+        connectionDiagnosticState = "needs-binding";
         cancelScheduleFilter();
         elapsedView = null;
         elapsedStartedAt = "";
@@ -1355,6 +1387,7 @@ public class MainActivity extends AppCompatActivity {
         Button update = secondaryButton("检查 App 新版本");
         update.setOnClickListener(v -> showUpdateCheck());
         body.addView(update);
+        body.addView(diagnosticsButton());
         scroll.addView(body);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
     }
@@ -1460,6 +1493,8 @@ public class MainActivity extends AppCompatActivity {
         if (overlay != null) root.removeView(overlay);
         resetScheduleFilters();
         data = null; tab = "home"; baseUrl = origin;
+        lastMobileHttpStatus = 0; lastNutritionDiagnostic = "";
+        connectionDiagnosticState = "authorization";
         deviceId = "android-" + UUID.randomUUID();
         getSharedPreferences("native_workbench", MODE_PRIVATE).edit()
             .putString("workbench_url", baseUrl).putString("device_id", deviceId).apply();
@@ -1477,6 +1512,7 @@ public class MainActivity extends AppCompatActivity {
         if (bindingChanging) return;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
+        connectionDiagnosticState = "authorization";
         bridgeReady = false;
         if (saving) return;
         mobileApi.cancelPending();
@@ -1503,6 +1539,7 @@ public class MainActivity extends AppCompatActivity {
         retry.setOnClickListener(v -> authWebView.loadUrl(baseUrl + "/mobile-connect"));
         authActions.addView(retry, new LinearLayout.LayoutParams(0, dp(44), 1));
         authHeader.addView(authActions);
+        authHeader.addView(diagnosticsButton());
         shell.addView(authHeader, new LinearLayout.LayoutParams(-1, -2));
 
         if (authWebView == null) {
@@ -1518,6 +1555,7 @@ public class MainActivity extends AppCompatActivity {
             settings.setUserAgentString(settings.getUserAgentString() + " RichangyuNative/" + appVersion());
             CookieManager.getInstance().setAcceptThirdPartyCookies(authWebView, true);
             if (!mobileApi.attach(authWebView)) {
+                connectionDiagnosticState = "webview-unavailable";
                 authWebView.destroy(); authWebView = null;
                 showError("系统网页组件过旧，无法建立安全连接。请更新 Android System WebView 或 Chrome 后重试。"); return;
             }
@@ -1527,6 +1565,7 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "只允许安全的 HTTPS 授权页面。", Toast.LENGTH_LONG).show(); return true;
                 }
                 @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                    connectionDiagnosticState = "authorization";
                     bridgeReady = false; mobileApi.cancelPending();
                 }
                 @Override public void onPageFinished(WebView view, String url) {
@@ -1539,6 +1578,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                     if (request.isForMainFrame()) {
+                        connectionDiagnosticState = "page-load-failed";
                         bridgeReady = false; syncLabel.setText("连接失败");
                         Toast.makeText(MainActivity.this, "授权页面未加载成功，请检查网络后重新加载。", Toast.LENGTH_LONG).show();
                     }
@@ -1639,6 +1679,7 @@ public class MainActivity extends AppCompatActivity {
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
+        if (diagnosticDialog != null && diagnosticDialog.isShowing()) diagnosticDialog.dismiss();
         if (updateChecker != null) updateChecker.close();
         if (mobileApi != null) mobileApi.close();
         if (authWebView != null) authWebView.destroy();
