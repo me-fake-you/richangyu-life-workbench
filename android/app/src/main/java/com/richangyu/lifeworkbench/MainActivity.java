@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
     private String baseUrl = "";
     private NativeAiSheet aiSheet;
     private NativeNutritionSheet nutritionSheet;
+    private NativeNutritionPhotoPicker nutritionPhotoPicker;
     private boolean bindingChanging;
     private AlertDialog bindingDialog;
     private AlertDialog bindingConfirmation;
@@ -111,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
+        nutritionPhotoPicker = new NativeNutritionPhotoPicker(this);
         getWindow().setStatusBarColor(CREAM);
         getWindow().setNavigationBarColor(Color.WHITE);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
@@ -1280,6 +1282,9 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionSheet != null) return;
         nutritionSheet = new NativeNutritionSheet(this, mobileApi, baseUrl, new NativeNutritionSheet.Host() {
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || bindingChanging; }
+            @Override public void pickPhoto(boolean camera, NativeNutritionPhotoPicker.Callback callback) {
+                nutritionPhotoPicker.pick(camera, callback);
+            }
             @Override public void onAuthRequired() { showAuth(); }
             @Override public void onClosed() { nutritionSheet = null; }
         });
@@ -1629,6 +1634,7 @@ public class MainActivity extends AppCompatActivity {
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
         if (nutritionSheet != null) nutritionSheet.close();
+        if (nutritionPhotoPicker != null) nutritionPhotoPicker.close();
         if (aiSheet != null) aiSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
@@ -1639,4 +1645,3 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
-
