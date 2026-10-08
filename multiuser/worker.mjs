@@ -11,7 +11,7 @@ import {
 
 import { readContentInput, listOwnContent, changeOwnContent } from "./content-service.mjs";
 
-const capabilities = Object.freeze({
+const baseCapabilities = Object.freeze({
   accountWorkspace: true,
   records: false,
   checkins: false,
@@ -20,6 +20,21 @@ const capabilities = Object.freeze({
   attachments: false,
   backup: false,
 });
+
+function configuredCapabilities(env) {
+  const database = env.MULTIUSER_DB;
+  const configured = env.MULTIUSER_FOUNDATION_ENABLED === "true"
+    && env.MULTIUSER_AUTH_MODE === "sites-dispatch"
+    && database && typeof database.prepare === "function";
+  const content = Boolean(configured && env.MULTIUSER_CONTENT_ENABLED === "true"
+    && typeof database.batch === "function");
+  return {
+    ...baseCapabilities,
+    accountWorkspace: Boolean(configured),
+    records: content,
+    schedules: content,
+  };
+}
 
 function json(body, status = 200, extraHeaders = {}) {
   return Response.json(body, {
@@ -36,9 +51,13 @@ export async function handleFoundationRequest(request, env = {}) {
   const url = new URL(request.url);
   if ((url.pathname === "/" || url.pathname === "/health") &&
       request.method === "GET") {
+    const available = configuredCapabilities(env);
     return json({
       service: "richangyu-multiuser-foundation",
-      stage: "account-workspace-only",
+      stage: available.records ? "isolated-content-foundation" : "account-workspace-only",
+      configured: available.accountWorkspace,
+      capabilities: available,
+      nativeBindingReady: false,
       registrationOpen: false,
       fullWorkbenchReady: false,
     });
@@ -65,6 +84,7 @@ export async function handleFoundationRequest(request, env = {}) {
     return json({ error: "independent_database_required" }, 503);
   }
 
+  const capabilities = configuredCapabilities(env);
   try {
     if (content) {
       if (request.method === "GET") return json({ ...await listOwnContent(database, subject), stage: "isolated-content-foundation", fullWorkbenchReady: false });

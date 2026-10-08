@@ -23,8 +23,8 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate": "npm run typecheck && npm run lint && npm run test && npm run check:encoding && npm run build",
-    "android:setup": "pwsh -File ./scripts/setup-android-store-app.ps1",
-    "android:release": "pwsh -File ./scripts/release-android-workbench.ps1",
+    "android:setup": "node scripts/native-android-project.mjs setup",
+    "android:release": "pwsh -File ./scripts/build-android-release.ps1 -BuildType release",
     "android:release:internal": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track internal -Status completed",
     "android:release:production": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track production -Status completed",
     "android:release:internal:build-only": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track internal -SkipUpload",
@@ -40,10 +40,10 @@
     "android:build:debug": "pwsh -File ./scripts/build-android-release.ps1 -BuildType debug",
     "android:build:release": "pwsh -File ./scripts/build-android-release.ps1 -BuildType release",
     "android:upload": "pwsh -File ./scripts/upload-android-playstore.ps1",
-    "android:add": "npx cap add android",
-    "android:sync": "npx cap sync android",
-    "android:open": "npx cap open android",
-    "android:install": "npx cap sync android && npx cap open android",
+    "android:add": "node scripts/native-android-project.mjs add",
+    "android:sync": "node scripts/native-android-project.mjs sync",
+    "android:open": "node scripts/native-android-project.mjs open",
+    "android:install": "node scripts/native-android-project.mjs install",
     "check:encoding": "node scripts/check-encoding.mjs",
     "doctor": "node scripts/doctor.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -51,13 +51,11 @@
     "cloudflare:configure": "node scripts/configure-cloudflare.mjs",
     "cloudflare:migrate": "node scripts/apply-migrations.mjs",
     "deploy:cloudflare": "npm run build && npm run cloudflare:configure && npm run cloudflare:migrate && wrangler deploy --config dist/server/wrangler.self-host.json",
-    "release:source": "node scripts/export-open-source.mjs"
+    "release:source": "node scripts/export-open-source.mjs",
+    "android:guide": "node scripts/native-android-project.mjs guide"
   },
   "dependencies": {
     "@types/papaparse": "^5.5.2",
-    "@capacitor/android": "^6.1.2",
-    "@capacitor/core": "^6.1.2",
-    "@capacitor/splash-screen": "6.0.4",
     "drizzle-orm": "0.45.2",
     "ical.js": "^2.2.1",
     "lucide-react": "^1.27.0",
@@ -82,10 +80,14 @@
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
-    "@capacitor/cli": "^6.1.2",
     "vinext": "0.0.50",
     "vite": "8.3.2",
     "wrangler": "4.147.0"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  }
 }

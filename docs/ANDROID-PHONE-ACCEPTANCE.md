@@ -1,57 +1,66 @@
-# 安卓手机验收与他人试用
+# Android phone acceptance guide
 
-此清单用于确认 App 在真实安卓手机上能完成登录、保存和跨端同步。电脑端测试或安装包校验不代替这些步骤；未填写的项目全部视为待验证。
+This is a manual procedure, not a report that tests passed.
+USB debugging is not required. Screenshots or a short screen recording can supply
+evidence when the user's phone cannot be connected to the computer.
 
-## 当前使用范围
+## Before starting
 
-公开 APK 是可绑定兼容 HTTPS 工作台的客户端，不是已经开放注册的多用户云服务。个人工作台的记录、日程和其他数据目前按整个工作台保存，没有按登录账号隔离。安装相同 App 不会自动拥有个人工作台或 AI 额度。
+1. Record the phone model, Android version and exact installed App version.
+2. Download only from the official project release. Confirm that the filename ends
+   in .apk; a file ending in .apk.1 may not be recognized as an installer.
+3. Finish current saves and protect existing local drafts before an update. Do not
+   uninstall solely to work around a signing conflict without protecting local data.
+4. Use your own trusted HTTPS workbench root address, not a login URL, token or password.
+5. Do not share a private workbench address or login credential with another tester.
+6. For the current source iteration, wait for a newly built and published APK before
+   expecting the new record filters and phone-guide interface.
 
-推荐他人使用自己的独立部署、独立数据库、附件存储与服务器端 AI 配置。不要把个人工作台直接开放给所有人，也不要共享账号、授权链接或 AI 密钥。只新增登录按钮或邀请一个账号，不能实现各自数据隔离。多用户公开服务还需要服务器端归属校验、全部接口和附件权限、独立备份导出删除、AI 上下文隔离及防串号测试。
+## Operations and required observations
 
-## 安装与首次迁移
-
-1. 在手机浏览器从对应 GitHub 预发布页下载 APK，不通过微信文件预览直接安装。
-2. 核对手机上的文件后缀是 `.apk`，不要安装来源不明或改名混淆的文件。
-3. 1.8.7 固定签名与旧随机签名不同，旧版通常不能直接覆盖。不要立即卸载，先确认重要内容已成功保存在工作台，保留本机未保存输入和草稿。
-4. 只有确认未同步内容已经妥善保留后，才卸载旧预览版并安装新版。不要为了安装关闭手机安全扫描。
-5. 固定签名后的覆盖更新还要求相同包名、同一密钥和递增版本代码。正式商店版是另一条签名和发布流程，不承诺与预览版直接互相覆盖。
-
-## 绑定与登录
-
-1. 打开 App，确认首次状态为待绑定。
-2. 点击绑定我的工作台，输入自己可信的 HTTPS 根地址，不填授权回调、密码或密钥。
-3. 点击连接，核对确认框中的目标域名。粘贴仅填写地址，不应自动登录或保存内容。
-4. 完成账号授权，确认返回原生首页并加载自己工作台中的真实数据。只有授权页面不等于登录和同步成功。
-5. 如未返回、一直等待或报错，记录最后停留的页面与错误文字。分享截图前遮住邮箱、金额、日记和授权参数，不发送验证码或登录链接。
-
-## 核心功能
-
-| 项目 | 操作 | 预期结果 | 真机结果 |
+| Flow | Action | Expected observation | Evidence to record |
 | --- | --- | --- | --- |
-| 打卡 | 开始一次短时测试打卡，再结束 | 状态和时长更新，桌面端刷新可见 | 待测 |
-| 记录 | 新增一条明确标注测试的普通记录 | 手机可见，桌面端刷新后内容一致 | 待测 |
-| 日程 | 创建明天的测试日程 | 起止时间正确，筛选和桌面端显示一致 | 待测 |
-| AI 预览 | 说“明天下午两点到四点做兼职，六点到七点读书，帮我安排日程” | 先显示可核对的计划，不直接写入 | 待测 |
-| AI 保存 | 确认日期与内容后保存一次 | 只保存一次，手机和桌面端都能看到 | 待测 |
-| 刷新同步 | 桌面端修改一条自己创建的测试日程，再刷新手机 | 修改后的内容一致 | 待测 |
-| 断网与重试 | 手机断网后尝试刷新，再恢复网络 | 清楚报错，不伪造成功或丢失已有显示 | 待测 |
-| 重启 | 关闭再打开 App | 绑定地址保留，需要授权时提示清楚 | 待测 |
+| Install/update | Install the trusted preview; update over an earlier same-signed preview where available | Correct version; no unexplained signing conflict; local drafts remain accessible in their account scope | Version, installer outcome and any error text |
+| Bind/login | Bind the correct root address and authorize inside the App | Returns to the native home with the correct account's data, without repeated login redirects | Native home or redacted error |
+| Check-in | Start a real focus activity and finish it when done | Active timer is visible; completion saves once; synced record time/title are correct | Start/finish observations and resulting record |
+| Record | Save one truthful record, reopen the App and synchronize | The saved record is retained and not duplicated | Redacted title/time or an identifier |
+| Record search | Search a known title/content/type; try today, past seven days and clear filters | Only loaded records are filtered; dates use Beijing time; no cloud records are deleted | Search/filter outcome and displayed counts |
+| Schedule | Save a real intended schedule; check date and time after reopening | Correct Beijing date/time and expected selected-day visibility | Redacted schedule observation |
+| Nutrition | Open calories from the home entry; review any estimate before saving | Portion and calorie information is visible, reviewed and retained after sync | Entry used, reviewed values and save outcome |
+| Work | Inspect a real project, work duration, receivable and actual received payments | Hours do not automatically become income; payable/received/remaining are distinct | Observations without disclosing financial details |
+| AI cancel | Ask about a real plan, inspect preview and cancel | No action is written merely because a preview was produced or cancelled | Cancel result |
+| AI confirm | Review a harmless truthful plan and explicitly confirm once | Only the confirmed action is added; errors do not silently duplicate operations | Preview and resulting item, redacted |
+| Local draft | Explicitly save a suitable local draft; reconnect and submit manually once | Clearly marked as local until submitted; uncertain outcomes are checked before retrying | Draft state and confirmed cloud result |
+| Cross-device sync | Inspect the same saved item in the bound web workbench and reopen on phone | Same item and time; no conflicting duplicate | Both observations with private details covered |
+| Account/binding change | Only when an independently authorized second workspace exists, switch and return | No other account's records or drafts appear | Workspace-isolation result without addresses |
 
-如保存时网络中断、结果待核对，先到工作台检查是否已保存，不要反复提交。只清理本轮自己创建的测试记录，不删除原有内容。
+Do not create fictitious payments, private example records or disposable cloud data
+without permission. Use real intended entries for ordinary operation checks.
+A request timeout does not prove a save failed. Synchronize and inspect before retrying.
 
-## 给别人试用
+## Feedback format
 
-最安全的方式是发送公开安装包与这份说明，让对方绑定自己的兼容工作台。演示产品时使用虚构数据的独立演示环境。当前个人部署不在本轮开放外部访问，不向陌生人分享自己的数据库、个人地址或登录账号。
+- App version:
+- Phone model / Android version:
+- Entry or screen:
+- Local date/time of operation:
+- What I did:
+- Expected result:
+- Actual result:
+- Did the item appear in the bound web workbench:
+- Screenshot or recording with sensitive details covered:
 
-## 验收记录
+Redact email addresses, private site addresses, authorization links, tokens, keys,
+record contents, financial details and unrelated personal information.
+The in-app phone guide does not export account identifiers or private addresses.
 
-- 测试日期：待填。
-- 手机型号与安卓版本：待填。
-- App 版本：待填。
-- 绑定与授权返回：待测。
-- 打卡、记录、日程、AI 保存：待测。
-- 双向刷新同步：待测。
-- 固定签名后的下一版本覆盖安装：待测。
-- 已遮挡个人信息的错误截图：按需提供。
+## Passing criteria
 
-手机验收完成前不将上述项目标为通过，也不宣称已经上架应用商店。
+Installation, native login return, main saves, reopening, updating and synchronization
+must have actual phone evidence. Record individual outcomes rather than one general
+"works" statement. Any unresolved login loop, data loss, duplicate operation or
+cross-account data exposure prevents acceptance.
+
+Automated checks and cloud Android builds are separate evidence. A compile or a passing
+web check does not replace phone acceptance. This guide does not certify store readiness,
+public multiuser availability or full offline support.

@@ -2,7 +2,8 @@
 
 [English](./README.en.md) · [三分钟产品讲解](#三分钟产品讲解) · [图文使用指南](./docs/usage-guide.md) · [本地运行](#本地运行) · [独立部署](./docs/deployment-cloudflare.md) · [参与贡献](./CONTRIBUTING.md)
 
-[![Version](https://img.shields.io/badge/version-1.5.0-76508a)](./CHANGELOG.md)
+[![Web version](https://img.shields.io/badge/web-1.5.0-69756f)](./CHANGELOG.md)
+[![Android preview](https://img.shields.io/badge/android-1.8.12--preview-235844)](https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.12-preview)
 [![License](https://img.shields.io/badge/license-MIT-2f855a)](./LICENSE)
 ![PWA](https://img.shields.io/badge/PWA-installable-6f4d83)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Cloudflare-f38020)
@@ -11,6 +12,22 @@
 一个开源、隐私优先、可自部署的个人生活操作系统。它把“计划要做什么、实际发生了什么、后来如何理解这段生活”连接在同一个工作台中。
 
 ![日常屿产品预览](./public/og.png)
+
+## 安卓 App 预览版
+
+已有可下载的原生安卓预览包，不必把安装到主屏幕的网页当作 APK。
+
+- [下载 1.8.12-preview APK](https://github.com/me-fake-you/richangyu-life-workbench/releases/download/v1.8.12-preview/life-workbench-v1.8.12-preview.apk)
+- [发布说明与校验信息](https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.12-preview)
+- [手机实测步骤](./docs/ANDROID-PHONE-ACCEPTANCE.md)
+- [总体交付计划](./docs/DELIVERY-ROADMAP-20261008.md)
+- [数据与隐私](./docs/data-and-privacy.md) · [正式发布准备](./docs/ANDROID-STORE-PREPARATION-20261003.md)
+
+App 内可使用打卡、记录、日程、热量与饮食、兼职结算和 AI 预览确认，并绑定自己的兼容 HTTPS 工作台。网页组件用于登录授权，读取成功后回到原生页面。高级网页版功能与原生入口并不完全相同，详见[功能入口说明](./docs/ANDROID-FEATURE-NAVIGATION.md)。
+
+当前仍是预览版，尚未完成用户手机验收、正式商店签名或商店上架。独立多人服务已有基础源码，但尚未开放公共注册；不要邀请别人进入私人工作台试用。已有安装包不会自动获得后续源码中的界面改动，原生升级需要安装新 APK。
+
+本轮记录搜索、首页布局及隐私入口改动尚未打包发布，不属于上述 1.8.12 下载包。
 
 ## 三分钟产品讲解
 
@@ -111,6 +128,8 @@ flowchart LR
 
 ## 功能成熟度
 
+下表的稳定能力主要描述网页版；安卓预览能力及限制以上方说明为准。
+
 图标含义：✅ 可直接使用；🧪 需要配置或仍在增强；🧭 计划方向。
 
 | 领域 | 当前状态 | 说明 |
@@ -123,7 +142,8 @@ flowchart LR
 | 情报、研究与求职 | 🧪 | 公开来源读取可用；AI 提炼、定时刷新与部分来源依赖部署配置 |
 | AI 总结与生活问询 | 🧪 | 需要文字模型；结果保留来源，写入前由用户确认 |
 | PWA 与离线队列 | ✅ | 可安装到主屏幕；离线队列不是长期备份 |
-| 多人协作、原生客户端、插件市场 | 🧭 | 不在当前稳定版本承诺范围内 |
+| 安卓原生客户端 | 预览 | 已有 1.8.12 下载包，仍待真机验收及正式发布，不等同于网页版完整覆盖 |
+| 多人服务与插件市场 | 计划 / 基础 | 多人账号隔离基础已有，独立部署、公开登录与安卓覆盖仍待完成；插件市场不在稳定承诺内 |
 
 ## 四个典型使用场景
 
@@ -221,7 +241,13 @@ npx wrangler deploy --config dist/server/wrangler.self-host.json
 
 ## 移动端
 
-它是可安装网页应用（PWA），不是商店里的原生 APK/IPA。电脑和手机打开同一个已部署网址即可编辑同一份 D1 数据。
+### 安卓原生预览
+
+安卓用户可使用上方原生 APK，需自行绑定兼容工作台并登录。云端数据同步与原生界面更新是两件事：兼容的服务接口可共享数据，但手机界面改动需要安装新版 APK。账号授权不自动创建多人独立空间。
+
+### 网页应用 PWA
+
+网页版另有可安装网页应用（PWA），它与原生 APK 是不同入口；电脑和手机访问同一个兼容部署并获得授权后可编辑相应数据。以下步骤描述 PWA，不是 APK 安装步骤。
 
 - iPhone：Safari → 分享 → 添加到主屏幕。
 - Android：Chrome/系统浏览器 → 安装应用或添加到主屏幕。
@@ -283,7 +309,7 @@ npm run validate
 
 ## 项目状态
 
-当前为 `v1.5.0` 移动优先版：在长期可靠性和简洁工作台基础上，加入六项快捷记录、可配置底部入口、相机/语音直达、离线重开、可见同步状态、手机通知设置、后台隐私锁定和按需加载。
+网页版稳定说明为 `v1.5.0`；安卓另有 `1.8.12-preview`，不混用版本或成熟度。本轮安卓界面与隐私入口源码尚未发布。网页版移动优先能力包括：在长期可靠性和简洁工作台基础上，加入六项快捷记录、可配置底部入口、相机/语音直达、离线重开、可见同步状态、手机通知设置、后台隐私锁定和按需加载。
 
 下一阶段仍值得升级，但重点不应继续堆叠新模块，而应优先提高“长期真的敢用”的程度：
 
@@ -293,7 +319,7 @@ npm run validate
 4. **安全加固**：部署时强制身份保护检查、可选客户端加密设计、敏感字段脱敏和会话审计。
 5. **AI 可解释性**：继续完善来源、置信度、成本、失败重试和人工确认，不允许无来源内容自动写入正式数据。
 
-原生客户端、多人协作、第三方插件市场和医疗级营养分析不在当前稳定版本承诺范围内。公开发布流程见[GitHub 发布说明](./docs/github-release.md)。
+原生安卓客户端已提供预览包，但正式发布与真机验收未完成。公共多人服务、第三方插件市场和医疗级营养分析仍不在当前稳定版本承诺范围内。公开发布流程见[GitHub 发布说明](./docs/github-release.md)。
 
 ## 许可证
 

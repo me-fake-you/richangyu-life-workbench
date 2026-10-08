@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Richangyu leaf island brand candidate</title>
+  <desc id="desc">Original vector artwork, a forest green leaf and warm sun on paper. Source candidate, not an installed launcher or a final store upload.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FCF9F1"/>
+      <stop offset="1" stop-color="#E8EFE3"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#396F55"/>
+      <stop offset="1" stop-color="#193A2E"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#paper)" d="M0 0h1024v1024H0z"/>
+  <circle cx="512" cy="498" r="315" fill="none" stroke="#D9E4D6" stroke-width="8"/>
+  <circle cx="746" cy="272" r="55" fill="#E5AE6F"/>
+  <path d="M302 694C211 529 295 310 737 300C737 577 604 768 302 694Z" fill="url(#leaf)"/>
+  <path d="M257 796C317 615 470 451 661 352" fill="none" stroke="#F5F3E8" stroke-width="31" stroke-linecap="round"/>
+  <path d="M269 802C296 719 342 642 400 574" fill="none" stroke="#235844" stroke-width="28" stroke-linecap="round"/>
+</svg>
