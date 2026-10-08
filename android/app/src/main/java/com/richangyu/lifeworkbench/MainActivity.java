@@ -109,6 +109,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean syncing = false;
     private boolean saving = false;
     private boolean saveOutcomeUnknown = false;
+    private long lastHomeReadAt;
+    private boolean homeReadSucceeded;
+    private String homeConnectionMessage = "";
     private MobileApiBridge mobileApi;
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private TextView elapsedView;
@@ -288,7 +291,7 @@ public class MainActivity extends AppCompatActivity {
             View item = nav.getChildAt(i);
             NativeUi.selectNav(item, tab.equals(item.getTag()));
         }
-        if (data == null && !"features".equals(tab)) {
+        if (data == null && !"features".equals(tab) && !"home".equals(tab)) {
             showError("尚未连接工作台。连接成功后会在这里显示原生打卡、记录和日程页面。");
             return;
         }
@@ -311,30 +314,45 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void renderHome(LinearLayout body) {
-        JSONObject user = data.optJSONObject("user");
+        JSONObject user = data == null ? null : data.optJSONObject("user");
         long now = System.currentTimeMillis();
         SimpleDateFormat format = new SimpleDateFormat("M月d日 EEEE", Locale.CHINA);
         format.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
         body.addView(text(format.format(new Date(now)) + " · 北京时间", 13, MUTED));
-        TextView heading = text("今天，按自己的节奏", 27, INK);
+        TextView heading = text("今天，按自己的节奏", 25, INK);
         heading.setTypeface(NativeUi.DISPLAY);
-        heading.setPadding(0, dp(6), 0, dp(6));
+        heading.setPadding(0, dp(6), 0, dp(10));
         body.addView(heading);
-        TextView account = text(user == null ? "" : user.optString("displayName"), 13, MUTED);
-        account.setMaxLines(1);
-        account.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        account.setPadding(0, 0, 0, dp(14));
-        body.addView(account);
-        boolean focusing = data.optJSONObject("activeCheckin") != null;
-        if (focusing) addCheckinCard(body);
+        String displayName = user == null ? "" : user.optString("displayName");
+        if (!displayName.isEmpty()) {
+            TextView account = text(displayName, 13, MUTED);
+            account.setMaxLines(1);
+            account.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            account.setPadding(0, 0, 0, dp(10));
+            body.addView(account);
+        }
+        addHomeConnectionState(body);
         addQuickActions(body);
+        if (data == null) {
+            TextView hint = text("连接并读取成功后，这里才会显示你的今日安排与记录。未读取不代表云端没有数据。", 12, MUTED);
+            hint.setPadding(0, dp(4), 0, dp(12));
+            body.addView(hint);
+            addHomeConnectionHelp(body);
+            return;
+        }
+        if (data.optJSONObject("activeCheckin") != null) addCheckinCard(body);
         JSONArray records = data.optJSONArray("records");
         int todayCount = WorkbenchRecordPolicy.select(recordEntries(records),
             WorkbenchRecordPolicy.TODAY, "", now).size();
-        body.addView(text("今日记录 " + todayCount + " · 本机草稿 " + draftCount(), 13, MUTED));
-        body.addView(text("记录数量仅统计本次已同步内容。", 11, MUTED));
-        if (!focusing) addCheckinCard(body);
-        sectionTitle(body, "今天的安排");
+        TextView summary = text("今日记录 " + todayCount + " · 本机草稿 " + draftCount(), 13, GREEN);
+        summary.setPadding(0, dp(4), 0, dp(4));
+        body.addView(summary);
+        body.addView(text("数量与安排仅统计本次读取到手机的内容，不代表全部云端数据。", 11, MUTED));
+        addHomeSectionHeader(body, "今天的安排", "查看今日日程", () -> {
+            scheduleScope = WorkbenchSchedulePolicy.TODAY;
+            scheduleQuery = "";
+            selectTab("schedule");
+        });
         JSONArray schedules = data.optJSONArray("schedules");
         List<WorkbenchSchedulePolicy.Entry> rows = new ArrayList<>();
         if (schedules != null) for (int i = 0; i < schedules.length(); i++) {
@@ -345,16 +363,109 @@ public class MainActivity extends AppCompatActivity {
         List<WorkbenchSchedulePolicy.Entry> today = WorkbenchSchedulePolicy.select(rows,
             WorkbenchSchedulePolicy.TODAY, "", now);
         if (today.isEmpty()) emptyCard(body, "今天的时间，还可以安排",
-            "本次已同步日程中，没有今天的安排。", "安排日程", this::showScheduleDialog);
+            "本次读取的日程中，没有今天的安排。", "安排日程", () -> openHomeAction("schedule-create"));
         else for (int i = 0; i < Math.min(3, today.size()); i++)
             addSchedule(body, schedules.optJSONObject(today.get(i).sourceIndex));
-        sectionTitle(body, "最近记录");
+        if (today.size() > 3) body.addView(text("本次读取还有 " + (today.size() - 3)
+            + " 条今日安排，可在日程页查看。", 12, MUTED));
+        addHomeSectionHeader(body, "最近记录", "查看记录", () -> {
+            resetRecordFilters();
+            selectTab("records");
+        });
         List<WorkbenchRecordPolicy.Entry> recent = WorkbenchRecordPolicy.select(recordEntries(records),
             WorkbenchRecordPolicy.ALL, "", now);
         if (recent.isEmpty()) emptyCard(body, "随手记下今天",
-            "本机草稿与云端记录会明确分开。", "写一条记录", this::showRecordDialog);
+            "本机草稿与云端记录会明确分开。", "写一条记录", () -> openHomeAction("record-create"));
         else for (int i = 0; i < Math.min(3, recent.size()); i++)
             addRecord(body, records.optJSONObject(recent.get(i).sourceIndex));
+    }
+
+    private void addHomeConnectionState(LinearLayout body) {
+        WorkbenchHomePolicy.SnapshotState state = WorkbenchHomePolicy.snapshotState(
+            data != null, bridgeReady, syncing, homeReadSucceeded);
+        SimpleDateFormat clock = new SimpleDateFormat("HH:mm", Locale.CHINA);
+        clock.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        String stamp = lastHomeReadAt > 0 ? "上次读取 " + clock.format(new Date(lastHomeReadAt)) : "尚未成功读取";
+        if (state == WorkbenchHomePolicy.SnapshotState.FRESH && !saveOutcomeUnknown) {
+            TextView status = text(stamp + " · 点右上角可刷新", 11, MUTED);
+            status.setPadding(0, 0, 0, dp(10));
+            body.addView(status);
+            return;
+        }
+        LinearLayout box = card();
+        box.setPadding(dp(14), dp(12), dp(14), dp(12));
+        box.setBackground(NativeUi.shape(this, PALE_GREEN, 16, NativeUi.BORDER));
+        String title, hint;
+        if (state == WorkbenchHomePolicy.SnapshotState.UNAVAILABLE) {
+            title = baseUrl.isEmpty() ? "先连接你的工作台" : syncing ? "正在读取工作台" : "连接后，日常就在这里";
+            hint = baseUrl.isEmpty() ? "绑定自己的 HTTPS 工作台根地址，不填写邮箱、密码或 API 密钥。"
+                : syncing ? "读取完成前不显示云端统计。" : homeConnectionMessage.isEmpty()
+                    ? "还没有读取云端数据。先在 App 内登录，再使用记录、热量与日程。"
+                    : homeConnectionMessage;
+        } else if (state == WorkbenchHomePolicy.SnapshotState.REFRESHING) {
+            title = "正在刷新";
+            hint = stamp + "；刷新完成前仍显示上次内容。";
+        } else if (saveOutcomeUnknown) {
+            title = "有保存结果待核对";
+            hint = stamp + "；请先同步核对，不要重复提交同一条记录。";
+        } else {
+            title = "当前显示上次读取内容";
+            hint = stamp + "；" + (homeConnectionMessage.isEmpty() ? "请刷新或重新授权。" : homeConnectionMessage);
+        }
+        box.addView(text(title, 16, GREEN));
+        TextView detail = text(hint, 12, MUTED);
+        detail.setPadding(0, dp(5), 0, 0);
+        box.addView(detail);
+        if (state != WorkbenchHomePolicy.SnapshotState.REFRESHING) {
+            Button connect = primaryButton(baseUrl.isEmpty() ? "绑定我的工作台"
+                : syncing ? "正在读取" : data == null || !bridgeReady ? "登录 / 重新连接" : "刷新核对");
+            connect.setEnabled(!syncing && !saving && !bindingChanging);
+            connect.setOnClickListener(v -> { if (baseUrl.isEmpty()) showBinding(); else sync(); });
+            box.addView(connect);
+        }
+        body.addView(box);
+    }
+
+    private boolean homeActionsStacked() {
+        return WorkbenchHomePolicy.stackedActions(getResources().getConfiguration().screenWidthDp,
+            getResources().getConfiguration().fontScale);
+    }
+
+    private void addHomeSectionHeader(LinearLayout body, String title, String action, Runnable listener) {
+        boolean stacked = homeActionsStacked();
+        LinearLayout row = quickRow();
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(6));
+        TextView label = text(title, 18, INK);
+        label.setTypeface(NativeUi.MEDIUM);
+        row.addView(label, stacked ? new LinearLayout.LayoutParams(-1, -2)
+            : new LinearLayout.LayoutParams(0, -2, 1));
+        Button button = secondaryButton(action);
+        button.setTextSize(13);
+        button.setOnClickListener(v -> listener.run());
+        row.addView(button, new LinearLayout.LayoutParams(stacked ? -1 : -2, -2));
+        body.addView(row);
+    }
+
+    private void addHomeConnectionHelp(LinearLayout body) {
+        body.addView(text("App 版本 " + appVersion() + " · 未连接时不会读取云端记录", 11, MUTED));
+        if (!activeDraftScope.isEmpty()) {
+            Button draft = secondaryButton("离线写一条草稿");
+            draft.setOnClickListener(v -> showRecordDialog());
+            body.addView(draft);
+        }
+        Button binding = secondaryButton("设置 / 更换工作台地址");
+        binding.setOnClickListener(v -> showBinding());
+        body.addView(binding);
+        Button help = secondaryButton("安装与登录帮助");
+        help.setOnClickListener(v -> showInstallHelp());
+        body.addView(help);
+        body.addView(privacyButton());
+        body.addView(diagnosticsButton());
+        Button update = secondaryButton("检查 App 新版本");
+        update.setOnClickListener(v -> showUpdateCheck());
+        body.addView(update);
     }
 
     private void addNutritionEntry(LinearLayout body) {
@@ -440,17 +551,61 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addQuickActions(LinearLayout body) {
-        LinearLayout heading=quickRow();heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title=text("常用功能",18,INK);title.setTypeface(NativeUi.MEDIUM);heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        Button all=secondaryButton("全部功能");all.setOnClickListener(v->selectTab("features"));heading.addView(all,new LinearLayout.LayoutParams(-2,-2));body.addView(heading);
-        LinearLayout first=quickRow();
-        first.addView(quickAction("热量与饮食","记一餐、调整份量","nutrition",GREEN,this::showNutrition),quickParams(true));
-        first.addView(quickAction("兼职与结算","工时、待收、到账","schedule",BLUE,this::showWork),quickParams(false));body.addView(first);
-        LinearLayout second=quickRow();
-        second.addView(quickAction("今日安排","看看今天要做什么","schedule",GREEN,()->{scheduleScope=WorkbenchSchedulePolicy.TODAY;selectTab("schedule");}),quickParams(true));
-        second.addView(quickAction("AI 助手","先预览，再确认执行","ai",GREEN,this::showAi),quickParams(false));body.addView(second);
-        LinearLayout capture=quickRow();String[] names={"写记录","随手收集","本机草稿"};Runnable[] actions={this::showRecordDialog,this::showInboxDialog,this::showDrafts};
-        for(int i=0;i<names.length;i++){final Runnable action=actions[i];Button button=secondaryButton(names[i]);button.setMinWidth(0);button.setMinimumWidth(0);button.setTextSize(13);button.setOnClickListener(v->action.run());capture.addView(button,new LinearLayout.LayoutParams(0,-2,1));}body.addView(capture);
+        addHomeSectionHeader(body, "常用功能", "全部功能", () -> selectTab("features"));
+        addHomeActionRow(body,
+            quickAction("热量与饮食", "记一餐、看热量", "nutrition", GREEN, () -> openHomeAction("nutrition")),
+            quickAction("写记录", "记下此刻发生的事", "records", BLUE, () -> openHomeAction("record-create")));
+        addHomeActionRow(body,
+            quickAction("安排日程", "选择日期与时间", "schedule", GREEN, () -> openHomeAction("schedule-create")),
+            quickAction("专注打卡", "开始或查看当前专注", "home", GREEN, () -> openHomeAction("checkin")));
+        LinearLayout more = quickRow();
+        boolean stacked = homeActionsStacked();
+        more.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        String[] titles = {"兼职结算", "AI 助手", "本机草稿"};
+        String[] keys = {"work-hours", "ai", "drafts"};
+        for (int i = 0; i < titles.length; i++) {
+            final String key = keys[i];
+            Button button = secondaryButton(titles[i]);
+            button.setTextSize(13);
+            button.setPadding(dp(8), dp(10), dp(8), dp(10));
+            button.setOnClickListener(v -> openHomeAction(key));
+            LinearLayout.LayoutParams params = stacked ? new LinearLayout.LayoutParams(-1, -2)
+                : new LinearLayout.LayoutParams(0, -2, 1);
+            params.setMargins(0, 0, !stacked && i < titles.length - 1 ? dp(6) : 0, dp(8));
+            more.addView(button, params);
+        }
+        body.addView(more);
+    }
+
+    private void addHomeActionRow(LinearLayout body, View first, View second) {
+        boolean stacked = homeActionsStacked();
+        LinearLayout row = quickRow();
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        for (int i = 0; i < 2; i++) {
+            LinearLayout.LayoutParams params;
+            if (stacked) {
+                params = new LinearLayout.LayoutParams(-1, -2);
+                params.setMargins(0, 0, 0, dp(10));
+            } else params = quickParams(i == 0);
+            row.addView(i == 0 ? first : second, params);
+        }
+        body.addView(row);
+    }
+
+    private void openHomeAction(String key) {
+        if ("drafts".equals(key)) { showDrafts(); return; }
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
+            || aiSheet != null || nutritionSheet != null) {
+            Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!bridgeReady || data == null) { showAuth(); return; }
+        if ("nutrition".equals(key)) showNutrition();
+        else if ("record-create".equals(key)) showRecordDialog();
+        else if ("schedule-create".equals(key)) showScheduleDialog();
+        else if ("checkin".equals(key)) openFeatureCheckin("专注打卡");
+        else if ("work-hours".equals(key)) showWork();
+        else if ("ai".equals(key)) showAi();
     }
 
     private void renderFeatures(LinearLayout body) {
@@ -1540,6 +1695,7 @@ public class MainActivity extends AppCompatActivity {
         syncing = true;
         connectionDiagnosticState = "reading";
         syncLabel.setText("同步中");
+        if ("home".equals(tab) && data != null) render();
         api("GET", null, envelope -> {
             syncing = false;
             int status = envelope.optInt("status");
@@ -1553,8 +1709,13 @@ public class MainActivity extends AppCompatActivity {
             if (status >= 400 || status == 0) {
                 connectionDiagnosticState = status == 0 ? "no-http-result" : "http-error";
                 syncLabel.setText("连接失败");
-                if (data == null) showError(responseError(envelope));
-                else Toast.makeText(this, responseError(envelope), Toast.LENGTH_LONG).show();
+                homeReadSucceeded = false;
+                homeConnectionMessage = responseError(envelope);
+                if (data == null) showError(homeConnectionMessage);
+                else {
+                    if ("home".equals(tab)) render();
+                    Toast.makeText(this, homeConnectionMessage, Toast.LENGTH_LONG).show();
+                }
                 return;
             }
             try {
@@ -1574,6 +1735,9 @@ public class MainActivity extends AppCompatActivity {
                 }
                 getSharedPreferences("native_workbench",MODE_PRIVATE).edit().putString("active_scope:"+baseUrl,activeDraftScope).apply();
                 data = snapshot;
+                lastHomeReadAt = System.currentTimeMillis();
+                homeReadSucceeded = true;
+                homeConnectionMessage = "";
                 connectionDiagnosticState = "ready";
                 CookieManager.getInstance().flush();
                 syncLabel.setText(saveOutcomeUnknown ? "结果待核实" : "已同步");
@@ -1607,7 +1771,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showError(String message) {
+        homeReadSucceeded = false;
+        homeConnectionMessage = message;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
+        if ("home".equals(tab)) { render(); return; }
         content.removeAllViews();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -1690,59 +1857,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void showBindingWelcome() {
         connectionDiagnosticState = "needs-binding";
-        cancelScheduleFilter();
-        elapsedView = null;
-        elapsedStartedAt = "";
+        homeReadSucceeded = false;
+        homeConnectionMessage = "";
         syncLabel.setText("待绑定");
-        content.removeAllViews();
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setVerticalScrollBarEnabled(false);
-        LinearLayout body = page();
-        TextView eyebrow = text("WELCOME / 初次连接", 11, GREEN);
-        eyebrow.setPadding(dp(2), dp(8), 0, dp(8));
-        body.addView(eyebrow);
-        TextView heading = text("先连接你的工作台", 27, INK);
-        heading.setTypeface(NativeUi.DISPLAY);
-        body.addView(heading);
-        TextView subtitle = text("App 已经打开，下一步绑定你已有的工作台。", 13, MUTED);
-        subtitle.setPadding(0, dp(9), 0, dp(18));
-        body.addView(subtitle);
-        LinearLayout guide = card();
-        guide.setBackground(NativeUi.shape(this, PALE_GREEN, 22, NativeUi.BORDER));
-        guide.addView(text("三步，让你的日常来到手机上", 17, INK));
-        String[] steps = {
-            "1. 复制工作台网址\n使用你自己的 HTTPS 根地址，不是邮箱、登录链接或 API 密钥。",
-            "2. 粘贴并确认域名\n点击下方绑定按钮，粘贴地址后确认目标工作台。",
-            "3. 登录后读取云端数据\n授权并读取成功后，返回原生打卡、记录、日程和 AI 页面。"
-        };
-        for (String step : steps) {
-            TextView line = text(step, 13, INK);
-            line.setPadding(0, dp(15), 0, 0);
-            guide.addView(line);
-        }
-        body.addView(guide);
-        Button bind = primaryButton("绑定我的工作台");
-        bind.setOnClickListener(v -> showBinding());
-        body.addView(bind);
-        TextView privacy = text("未绑定时不会读取云端记录；公开 App 不内置你的私人网址。", 11, MUTED);
-        privacy.setPadding(dp(2), dp(10), dp(2), dp(12));
-        body.addView(privacy);
-        body.addView(privacyButton());
-        Button help = secondaryButton("安装与登录帮助");
-        help.setOnClickListener(v -> showInstallHelp());
-        body.addView(help);
-        Button features = secondaryButton("全部功能与使用入口");
-        features.setOnClickListener(v -> selectTab("features"));
-        body.addView(features);
-        Button update = secondaryButton("检查 App 新版本");
-        update.setOnClickListener(v -> showUpdateCheck());
-        body.addView(update);
-        body.addView(diagnosticsButton());
-        scroll.addView(body);
-        content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        selectTab("home");
     }
-
     private void showBinding() {
         if (bindingChanging || saving || syncing || (aiSheet != null && aiSheet.isBusy())
             || (nutritionSheet != null && nutritionSheet.isBusy())) {
@@ -1847,6 +1966,7 @@ public class MainActivity extends AppCompatActivity {
         resetScheduleFilters();
         resetRecordFilters();
         data = null; tab = "home"; baseUrl = origin;
+        lastHomeReadAt = 0; homeReadSucceeded = false; homeConnectionMessage = "";
         activeDraftScope="";drafts=new NativeDraftStore(this,"");
         lastMobileHttpStatus = 0; lastNutritionDiagnostic = "";
         connectionDiagnosticState = "authorization";
