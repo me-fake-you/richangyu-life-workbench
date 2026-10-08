@@ -1,0 +1,39 @@
+{
+  "asOf": "2026-10-08",
+  "scope": "Public development branch npm lockfile only; no private deployment or Android rebuild",
+  "baseCommit": "719e21746fee41e5eaaa8f451bf3b66496886dfb",
+  "fullAudit": {
+    "beforeHigh": 13,
+    "afterHigh": 8,
+    "critical": 0,
+    "total": 8
+  },
+  "productionAudit": {
+    "beforeHigh": 1,
+    "afterHigh": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "patched": {
+    "sharp": "0.35.5",
+    "imageSize": "2.0.4"
+  },
+  "remainingPackages": [
+    "@next/eslint-plugin-next",
+    "braces",
+    "eslint-config-next",
+    "fast-glob",
+    "micromatch",
+    "vinext",
+    "vite-plugin-commonjs",
+    "vite-plugin-dynamic-import"
+  ],
+  "remainingAdvisory": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+  "limitations": [
+    "No official braces patch available as of this date",
+    "npm audit results are not a guarantee against unknown vulnerabilities",
+    "CodeQL and phone acceptance are separate checks",
+    "Unchanged pnpm lockfile and private deployment are not covered by this npm audit",
+    "No claim that all development dependencies are harmless"
+  ]
+}

@@ -20,6 +20,8 @@ jobs:
           node-version: 22.13.0
           cache: npm
       - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run validate
       - name: Verify the public source export
         run: npm run release:source
