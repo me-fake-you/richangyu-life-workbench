@@ -1,7 +1,7 @@
 {
   "name": "richangyu-life-workbench",
-  "version": "1.5.0",
-  "description": "开源、隐私优先的个人生活操作系统：记录、计划、财务、兼职、情报与长期回顾。",
+  "version": "1.6.0",
+  "description": "开源、隐私优先的个人生活工作台，覆盖记录、计划、财务、兼职、情报与长期回顾。",
   "private": true,
   "license": "MIT",
   "keywords": [
@@ -10,8 +10,8 @@
     "self-hosted",
     "cloudflare",
     "pwa",
-    "日记",
-    "生活记录"
+    "生活记录",
+    "生活工作台"
   ],
   "engines": {
     "node": ">=22.13.0"
@@ -23,6 +23,27 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate": "npm run typecheck && npm run lint && npm run test && npm run check:encoding && npm run build",
+    "android:setup": "pwsh -File ./scripts/setup-android-store-app.ps1",
+    "android:release": "pwsh -File ./scripts/release-android-workbench.ps1",
+    "android:release:internal": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track internal -Status completed",
+    "android:release:production": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track production -Status completed",
+    "android:release:internal:build-only": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track internal -SkipUpload",
+    "android:release:internal:upload-only": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track internal -UploadOnly",
+    "android:release:production:build-only": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track production -SkipUpload",
+    "android:release:production:upload-only": "pwsh -File ./scripts/release-and-upload-android.ps1 -Track production -UploadOnly",
+    "android:release:status": "pwsh -File ./scripts/android-release-status.ps1",
+    "android:release:status:strict": "pwsh -File ./scripts/android-release-status.ps1 -Strict",
+    "android:build": "pwsh -File ./scripts/build-android-release.ps1",
+    "android:keystore": "pwsh -File ./scripts/generate-android-keystore.ps1",
+    "android:version": "pwsh -File ./scripts/bump-android-version.ps1",
+    "android:check": "pwsh -File ./scripts/check-android-release-readiness.ps1",
+    "android:build:debug": "pwsh -File ./scripts/build-android-release.ps1 -BuildType debug",
+    "android:build:release": "pwsh -File ./scripts/build-android-release.ps1 -BuildType release",
+    "android:upload": "pwsh -File ./scripts/upload-android-playstore.ps1",
+    "android:add": "npx cap add android",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:install": "npx cap sync android && npx cap open android",
     "check:encoding": "node scripts/check-encoding.mjs",
     "doctor": "node scripts/doctor.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -34,17 +55,20 @@
   },
   "dependencies": {
     "@types/papaparse": "^5.5.2",
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/splash-screen": "6.0.4",
     "drizzle-orm": "0.45.2",
     "ical.js": "^2.2.1",
     "lucide-react": "^1.27.0",
-    "next": "16.2.6",
+    "next": "16.3.8",
     "papaparse": "^5.5.4",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/vite-plugin": "1.62.5",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -54,13 +78,14 @@
     "cross-env": "^10.1.0",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
+    "eslint-config-next": "16.3.8",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
+    "@capacitor/cli": "^6.1.2",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.3.2",
+    "wrangler": "4.147.0"
   },
   "type": "module"
 }

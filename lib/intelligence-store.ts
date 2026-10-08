@@ -50,6 +50,22 @@ export async function ensureIntelligenceSchema() {
         )
       `),
       DB.prepare(`
+        CREATE TABLE IF NOT EXISTS feed_source_health (
+          source_id TEXT PRIMARY KEY NOT NULL,
+          last_success_at TEXT,
+          last_failure_at TEXT,
+          last_error TEXT NOT NULL DEFAULT '',
+          consecutive_failures INTEGER NOT NULL DEFAULT 0,
+          item_count INTEGER NOT NULL DEFAULT 0,
+          image_count INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (source_id) REFERENCES feed_sources(id) ON DELETE CASCADE
+        )
+      `),
+      DB.prepare(
+        "CREATE INDEX IF NOT EXISTS feed_source_health_updated_idx ON feed_source_health(updated_at)",
+      ),
+      DB.prepare(`
         CREATE TABLE IF NOT EXISTS topic_subscriptions (
           id TEXT PRIMARY KEY NOT NULL,
           kind TEXT NOT NULL DEFAULT '主题',
@@ -286,6 +302,20 @@ export async function ensureIntelligenceSchema() {
 
     const defaultSources = [
       {
+        id: "default-cn-people-daily",
+        name: "人民日报 / 人民网 · 时政",
+        url: "https://politics.people.com.cn/",
+        kind: "国内",
+        authority: "中央媒体官方",
+      },
+      {
+        id: "default-cn-people-society",
+        name: "人民日报 / 人民网 · 社会",
+        url: "https://society.people.com.cn/",
+        kind: "国内",
+        authority: "中央媒体官方",
+      },
+      {
         id: "default-cn-xinhua",
         name: "新华网 · 国内",
         url: "https://www.news.cn/politics/",
@@ -320,12 +350,32 @@ export async function ensureIntelligenceSchema() {
         kind: "国际",
         authority: "国际主流媒体",
       },
+      {
+        id: "default-world-bbc",
+        name: "BBC News · World",
+        url: "https://feeds.bbci.co.uk/news/world/rss.xml",
+        kind: "国际",
+        authority: "国际主流媒体",
+      },
+      {
+        id: "default-world-guardian",
+        name: "The Guardian · World",
+        url: "https://www.theguardian.com/world/rss",
+        kind: "国际",
+        authority: "国际主流媒体",
+      },
     ];
     for (const source of defaultSources) {
       await DB.prepare(
-        `INSERT OR IGNORE INTO feed_sources
+        `INSERT INTO feed_sources
          (id, name, url, kind, authority, enabled, check_frequency)
-         VALUES (?, ?, ?, ?, ?, 1, '每日')`,
+         VALUES (?, ?, ?, ?, ?, 1, '每日')
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           url = excluded.url,
+           kind = excluded.kind,
+           authority = excluded.authority,
+           updated_at = CURRENT_TIMESTAMP`,
       )
         .bind(
           source.id,

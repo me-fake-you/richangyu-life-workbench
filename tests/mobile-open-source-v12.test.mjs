@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { assertSupportedProjectVersion } from "./helpers/project-version.mjs";
 
 test("v1.2 exposes mobile shortcuts and an accessible walkthrough", async () => {
   const [pkgRaw, manifest, workbench, guide, readme, videoScript, captions] = await Promise.all([
@@ -13,7 +14,7 @@ test("v1.2 exposes mobile shortcuts and an accessible walkthrough", async () => 
     readFile(new URL("../public/tutorial/richangyu-quick-start.vtt", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(JSON.parse(pkgRaw).version, "1.5.0");
+  assertSupportedProjectVersion(JSON.parse(pkgRaw).version);
   for (const action of ["record", "schedule", "nutrition", "inbox"]) {
     assert.match(manifest, new RegExp(`action=${action}`));
     assert.match(workbench, new RegExp(`action === "${action}"`));

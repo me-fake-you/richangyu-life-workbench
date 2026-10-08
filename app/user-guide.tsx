@@ -18,6 +18,7 @@ import {
   Smartphone,
   Sparkles,
   TableProperties,
+  ListChecks,
   Utensils,
   X,
 } from "lucide-react";
@@ -26,6 +27,14 @@ import { useEffect, useState } from "react";
 const guideSeenKey = "richangyu-guide-seen-v1";
 
 const quickRoutes = [
+  {
+    eyebrow: "TASK",
+    title: "先选任务，再安排时间",
+    copy: "所有待办先进入任务收件箱，再选今日 Top 3；需要固定时间的任务点“安排”进入时间表，开始时用正计时或番茄记录真实投入。",
+    action: "去任务规划",
+    view: "tasks",
+    icon: ListChecks,
+  },
   {
     eyebrow: "CAPTURE",
     title: "先记录，再整理",
@@ -61,13 +70,19 @@ const quickRoutes = [
 ];
 
 const dailyFlow = [
-  ["早晨", "在“今日”查看激励文字、今日三件事和时间表，圈出唯一重点。"],
-  ["白天", "手机点底部“＋”快速写字、拍照或录音；复杂操作再打开“更多指令”。"],
+  ["早晨", "在“任务规划”从收件箱选出今日三件事，只把需要固定时间的任务安排进时间表。"],
+  ["白天", "打开任务点“正计时”或“番茄”；手机底部“＋”可以随时添加任务、文字、照片或语音。"],
   ["吃饭", "进入“饮食与营养”上传餐食照片，确认 AI 估算的食物和份量。"],
   ["晚上", "补充实际投入、心情和照片，生成当天或本周总结。"],
 ];
 
 const moduleMap = [
+  {
+    icon: ListChecks,
+    title: "把想法变成行动",
+    copy: "任务收件箱、今日 Top 3、子任务、项目、看板、时间盒与专注时钟组成完整执行闭环。",
+    view: "tasks",
+  },
   {
     icon: CalendarClock,
     title: "安排生活",
@@ -107,7 +122,7 @@ const moduleMap = [
 ];
 
 const firstWeek = [
-  ["第 1 天", "只记录一件真实发生的事，并安排明天的一段时间。"],
+  ["第 1 天", "记下一项任务，加入今日 Top 3，再开始一轮 25 分钟专注。"],
   ["第 2—3 天", "开始使用收件箱，把来不及整理的文字、照片和链接先收下来。"],
   ["第 4—5 天", "完成日程后补充实际时长，第一次看见计划与实际的差异。"],
   ["第 6 天", "选择一个长期主题，建立专题或复制一张表格模板。"],

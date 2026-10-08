@@ -1,0 +1,146 @@
+name: Android native preview
+on:
+  push:
+    branches: ['codex/workbench-ai-20261002-c258dd87']
+    paths: ['android/**', '.github/workflows/android-native-preview.yml', 'docs/ANDROID-PREVIEW-RELEASE-1.8.12.md']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-native-preview.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-native-preview-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64 || '' }}
+      RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD || '' }}
+      RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87' && secrets.RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD || '' }}
+      RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS: ${{ vars.RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS }}
+      RICHANGYU_ANDROID_PREVIEW_CERT_SHA256: ${{ vars.RICHANGYU_ANDROID_PREVIEW_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.11.1'
+          cache-read-only: true
+      - name: Check privacy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find android -type f \( -name '*.keystore' -o -name '*.jks' -o -name 'local.properties' -o -name 'google-services.json' \) | grep -q .; then
+            echo "Private Android configuration must not be committed."
+            exit 1
+          fi
+          if grep -RIE 'https://[^"[:space:]]+\.chatgpt\.site|gsk_[A-Za-z0-9_-]{15,}|sk-[A-Za-z0-9_-]{20,}' android/app/src/main/java; then
+            echo "Personal endpoint or credential-shaped text found."
+            exit 1
+          fi
+      - name: Prepare persistent preview signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64" ] && [ -z "$RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD" ] && [ -z "$RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "PR validation uses an ephemeral test key; no public release is produced."
+              exit 0
+            fi
+            echo "Persistent preview signing is required for public builds; refusing an ephemeral release."
+            exit 1
+          fi
+          if [ -z "$RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64" ] || [ -z "$RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD" ] || [ -z "$RICHANGYU_ANDROID_PREVIEW_KEY_PASSWORD" ]; then
+            echo "Incomplete preview signing secrets; refusing fallback."
+            exit 1
+          fi
+          [[ "$RICHANGYU_ANDROID_PREVIEW_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Expected public certificate SHA-256 is required."; exit 1; }
+          umask 077
+          printf '%s' "$RICHANGYU_ANDROID_PREVIEW_KEYSTORE_BASE64" | base64 --decode > android/app/preview.keystore
+          alias_name="${RICHANGYU_ANDROID_PREVIEW_KEY_ALIAS:-preview}"
+          actual=$(keytool -exportcert -keystore android/app/preview.keystore -storepass:env RICHANGYU_ANDROID_PREVIEW_STORE_PASSWORD -alias "$alias_name" | sha256sum | cut -d ' ' -f1)
+          [ "$actual" = "$RICHANGYU_ANDROID_PREVIEW_CERT_SHA256" ] || { echo "Preview certificate does not match the public pin."; exit 1; }
+      - name: Native tests and APK
+        working-directory: android
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --console=plain --no-daemon
+      - name: Verify preview package and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > android-signature.txt
+          certificate=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' android-signature.txt | head -n 1)
+          [[ "$certificate" =~ ^[0-9a-f]{64}$ ]] || { echo "Missing preview certificate digest."; exit 1; }
+          signing=ephemeral
+          if [ -f android/app/preview.keystore ]; then
+            [ "$certificate" = "$RICHANGYU_ANDROID_PREVIEW_CERT_SHA256" ] || { echo "Built APK certificate does not match the public pin."; exit 1; }
+            signing=persistent
+          fi
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "$signing" != "persistent" ]; then
+            echo "Public preview must use the pinned persistent certificate."
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > android-package.txt
+          grep -q "name='com.richangyu.lifeworkbench.preview'.*versionCode='10014'.*versionName='1.8.12-preview'" android-package.txt
+          grep -q "targetSdkVersion:'36'" android-package.txt
+          mkdir -p preview
+          cp "$apk" preview/life-workbench-v1.8.12-preview.apk
+          (cd preview && sha256sum life-workbench-v1.8.12-preview.apk > life-workbench-v1.8.12-preview.apk.sha256)
+          cp docs/ANDROID-PREVIEW-RELEASE-1.8.12.md preview/RELEASE-NOTES.md
+          printf '\n<!-- workbench-preview-package: com.richangyu.lifeworkbench.preview -->\n<!-- workbench-preview-version-code: 10014 -->\n<!-- workbench-preview-certificate-sha256: %s -->\n<!-- workbench-preview-signing: %s -->\n' "$certificate" "$signing" >> preview/RELEASE-NOTES.md
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-native-preview-1.8.12
+          path: preview/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-native-test-reports
+          path: |
+            android/app/build/test-results/testDebugUnitTest/
+            android/app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+      - name: Clean temporary preview key
+        if: always()
+        shell: bash
+        run: rm -f -- android/app/preview.keystore
+  publish-preview:
+    needs: build
+    if: github.event_name == 'push' && github.repository == 'me-fake-you/richangyu-life-workbench' && github.ref == 'refs/heads/codex/workbench-ai-20261002-c258dd87'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download tested preview
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.12 --dir preview
+      - name: Publish immutable prerelease, never overwrite a signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v1.8.12-preview
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Existing preview retained; do not replace a same-version APK signed with a different debug key."
+            exit 0
+          fi
+          gh release create "$tag" \
+            preview/life-workbench-v1.8.12-preview.apk \
+            preview/life-workbench-v1.8.12-preview.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Android native 1.8.12-preview" \
+            --notes-file preview/RELEASE-NOTES.md --prerelease --latest=false

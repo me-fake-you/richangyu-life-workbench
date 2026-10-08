@@ -1,5 +1,7 @@
 import {
   analyzeMealWithVision,
+  visionConfiguration,
+  checkVisionConnection,
   estimateMealFromDescription,
   type MealEstimate,
 } from "../../../lib/ai-provider";
@@ -23,6 +25,139 @@ function iso(value: unknown) {
   return Number.isNaN(parsed.getTime())
     ? new Date().toISOString()
     : parsed.toISOString();
+}
+
+function foodMemoryKey(name: string, portion: string) {
+  return `${name}::${portion}`
+    .toLowerCase()
+    .replace(/[\s，,。.;；:：、（）()]+/g, "")
+    .slice(0, 180);
+}
+
+function withRecalculatedTotals(estimate: MealEstimate): MealEstimate {
+  if (!estimate.items.length) return estimate;
+  return {
+    ...estimate,
+    calories: estimate.items.reduce((sum, item) => sum + item.calories, 0),
+    proteinG: estimate.items.reduce((sum, item) => sum + item.proteinG, 0),
+    carbsG: estimate.items.reduce((sum, item) => sum + item.carbsG, 0),
+    fatG: estimate.items.reduce((sum, item) => sum + item.fatG, 0),
+  };
+}
+
+async function applyFoodMemory(DB: D1Database, estimate: MealEstimate) {
+  if (!estimate.items.length) return estimate;
+  let matched = 0;
+  const items = await Promise.all(
+    estimate.items.map(async (item) => {
+      const memory = await DB.prepare(
+        `SELECT calories, protein_g, carbs_g, fat_g
+         FROM nutrition_food_memory WHERE key = ?`,
+      )
+        .bind(foodMemoryKey(item.name, item.portion))
+        .first<{
+          calories: number;
+          protein_g: number;
+          carbs_g: number;
+          fat_g: number;
+        }>();
+      if (!memory) return item;
+      matched += 1;
+      return {
+        ...item,
+        calories: memory.calories,
+        proteinG: memory.protein_g,
+        carbsG: memory.carbs_g,
+        fatG: memory.fat_g,
+      };
+    }),
+  );
+  if (!matched) return estimate;
+  return withRecalculatedTotals({
+    ...estimate,
+    provider: "local",
+    model: "个人食物记忆",
+    source: estimate.source === "vision" ? "vision+memory" : "text+memory",
+    confidence: Math.max(estimate.confidence, 0.82),
+    summary: `${estimate.summary} 已参考 ${matched} 条你曾经修正过的同类食物。`,
+    items,
+  });
+}
+
+function scaledItems(
+  items: MealEstimate["items"],
+  totals: Pick<MealEstimate, "calories" | "proteinG" | "carbsG" | "fatG">,
+  fallbackName: string,
+) {
+  if (!items.length) {
+    return [
+      {
+        name: fallbackName || "这餐",
+        portion: "本次记录",
+        ...totals,
+      },
+    ];
+  }
+  const current = {
+    calories: items.reduce((sum, item) => sum + item.calories, 0),
+    proteinG: items.reduce((sum, item) => sum + item.proteinG, 0),
+    carbsG: items.reduce((sum, item) => sum + item.carbsG, 0),
+    fatG: items.reduce((sum, item) => sum + item.fatG, 0),
+  };
+  return items.map((item, index) => {
+    const last = index === items.length - 1;
+    const ratio = (value: number, total: number, target: number) =>
+      total > 0 ? (value / total) * target : target / items.length;
+    return {
+      ...item,
+      calories: ratio(item.calories, current.calories, totals.calories),
+      proteinG: ratio(item.proteinG, current.proteinG, totals.proteinG),
+      carbsG: ratio(item.carbsG, current.carbsG, totals.carbsG),
+      fatG: ratio(item.fatG, current.fatG, totals.fatG),
+      portion: item.portion || (last ? "本次修正份量" : "估算份量"),
+    };
+  });
+}
+
+async function learnFoodMemory(DB: D1Database, estimate: MealEstimate) {
+  if (!estimate.items.length) return;
+  await DB.batch(
+    estimate.items.map((item) =>
+      DB.prepare(
+        `INSERT INTO nutrition_food_memory
+         (key, name, portion, calories, protein_g, carbs_g, fat_g,
+          correction_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET
+           calories = (
+             nutrition_food_memory.calories * nutrition_food_memory.correction_count
+             + excluded.calories
+           ) / (nutrition_food_memory.correction_count + 1),
+           protein_g = (
+             nutrition_food_memory.protein_g * nutrition_food_memory.correction_count
+             + excluded.protein_g
+           ) / (nutrition_food_memory.correction_count + 1),
+           carbs_g = (
+             nutrition_food_memory.carbs_g * nutrition_food_memory.correction_count
+             + excluded.carbs_g
+           ) / (nutrition_food_memory.correction_count + 1),
+           fat_g = (
+             nutrition_food_memory.fat_g * nutrition_food_memory.correction_count
+             + excluded.fat_g
+           ) / (nutrition_food_memory.correction_count + 1),
+           correction_count = nutrition_food_memory.correction_count + 1,
+           updated_at = CURRENT_TIMESTAMP`,
+      ).bind(
+        foodMemoryKey(item.name, item.portion),
+        item.name,
+        item.portion,
+        item.calories,
+        item.proteinG,
+        item.carbsG,
+        item.fatG,
+      ),
+    ),
+  );
 }
 
 async function replaceMealEstimate(
@@ -72,7 +207,8 @@ export async function GET() {
   try {
     await ensureAdvancedSchema();
     const { DB } = getLifeBindings();
-    const [meals, items, media, settings, water] = await DB.batch([
+    const [meals, items, media, settings, water, corrections, memory] =
+      await DB.batch([
       DB.prepare("SELECT * FROM meals ORDER BY eaten_at DESC LIMIT 1000"),
       DB.prepare("SELECT * FROM meal_items ORDER BY created_at ASC"),
       DB.prepare("SELECT id, meal_id, filename, content_type, size FROM meal_media"),
@@ -81,7 +217,13 @@ export async function GET() {
         `SELECT id, glasses, logged_at FROM water_logs
          ORDER BY logged_at DESC LIMIT 1000`,
       ),
-    ]);
+        DB.prepare(
+          `SELECT meal_id, COUNT(*) AS correction_count,
+                  MAX(created_at) AS last_corrected_at
+           FROM meal_corrections GROUP BY meal_id`,
+        ),
+        DB.prepare("SELECT COUNT(*) AS value FROM nutrition_food_memory"),
+      ]);
     const itemMap = new Map<string, JsonObject[]>();
     for (const item of items.results as JsonObject[]) {
       const mealId = String(item.meal_id);
@@ -110,7 +252,17 @@ export async function GET() {
       });
       mediaMap.set(mealId, group);
     }
+    const correctionMap = new Map(
+      (corrections.results as JsonObject[]).map((row) => [
+        String(row.meal_id),
+        {
+          correctionCount: Number(row.correction_count) || 0,
+          lastCorrectedAt: row.last_corrected_at,
+        },
+      ]),
+    );
     return Response.json({
+      aiVision: visionConfiguration(),
       meals: (meals.results as JsonObject[]).map((row) => ({
         id: row.id,
         mealType: row.meal_type,
@@ -124,7 +276,13 @@ export async function GET() {
         analysisProvider: row.analysis_provider,
         items: itemMap.get(String(row.id)) ?? [],
         photos: mediaMap.get(String(row.id)) ?? [],
+        correctionCount:
+          correctionMap.get(String(row.id))?.correctionCount ?? 0,
+        lastCorrectedAt:
+          correctionMap.get(String(row.id))?.lastCorrectedAt ?? null,
       })),
+      memoryCount:
+        Number((memory.results[0] as JsonObject | undefined)?.value) || 0,
       settings: settings.results[0]
         ? {
             calorieTarget: (settings.results[0] as JsonObject).calorie_target,
@@ -156,9 +314,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const candidate = await request.clone().json() as JsonObject | null;
+      if (candidate?.action === "vision.check") {
+        return Response.json({ visionCheck: await checkVisionConnection() },
+          { headers: { "cache-control": "no-store" } });
+      }
+    }
     await ensureAdvancedSchema();
     const { DB, MEDIA } = getLifeBindings();
-    const contentType = request.headers.get("content-type") ?? "";
 
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -177,9 +342,12 @@ export async function POST(request: Request) {
       }
 
       let estimate = estimateMealFromDescription(note);
+      const manualCalories = numeric(form.get("calories"));
+      const manualOverride = manualCalories > 0;
       let photoBytes: ArrayBuffer | null = null;
       if (photo) {
         photoBytes = await photo.arrayBuffer();
+        if (!manualOverride) {
         try {
           estimate =
             (await analyzeMealWithVision({
@@ -197,12 +365,14 @@ export async function POST(request: Request) {
         }
       }
 
-      const manualCalories = numeric(form.get("calories"));
-      if (manualCalories > 0) {
+      }
+
+      if (manualOverride) {
         estimate = {
           ...estimate,
           provider: "local",
           model: "手动修正",
+          source: "manual",
           calories: manualCalories,
           proteinG: numeric(form.get("proteinG")),
           carbsG: numeric(form.get("carbsG")),
@@ -210,6 +380,9 @@ export async function POST(request: Request) {
           confidence: 1,
           summary: "使用了你手动填写的营养数据。",
         };
+      }
+      if (!manualOverride) {
+        estimate = await applyFoodMemory(DB, estimate);
       }
 
       await DB.prepare(
@@ -294,19 +467,70 @@ export async function POST(request: Request) {
 
     if (action === "meal.update") {
       const id = text(payload.id, 80);
-      const estimate = {
-        provider: "local" as const,
-        model: "手动修正",
-        summary: "已按手动输入修正。",
-        confidence: 1,
+      const currentMeal = await DB.prepare(
+        `SELECT meal_type, note, estimated_calories, protein_g, carbs_g, fat_g,
+                confidence, analysis_provider
+         FROM meals WHERE id = ?`,
+      )
+        .bind(id)
+        .first<JsonObject>();
+      if (!currentMeal) {
+        return Response.json({ error: "没有找到这条餐食记录。" }, { status: 404 });
+      }
+      const currentItems = await DB.prepare(
+        `SELECT name, portion, calories, protein_g, carbs_g, fat_g
+         FROM meal_items WHERE meal_id = ? ORDER BY created_at ASC`,
+      )
+        .bind(id)
+        .all<JsonObject>();
+      const totals = {
         calories: numeric(payload.calories),
         proteinG: numeric(payload.proteinG),
         carbsG: numeric(payload.carbsG),
         fatG: numeric(payload.fatG),
-        items: Array.isArray(payload.items)
-          ? (payload.items as MealEstimate["items"])
-          : [],
       };
+      const sourceItems = Array.isArray(payload.items)
+        ? (payload.items as MealEstimate["items"])
+        : currentItems.results.map((row) => ({
+            name: text(row.name, 200),
+            portion: text(row.portion, 200),
+            calories: numeric(row.calories),
+            proteinG: numeric(row.protein_g),
+            carbsG: numeric(row.carbs_g),
+            fatG: numeric(row.fat_g),
+          }));
+      const estimate: MealEstimate = {
+        provider: "local" as const,
+        model: "手动修正",
+        summary: "已按手动输入修正。",
+        confidence: 1,
+        ...totals,
+        items: scaledItems(
+          sourceItems,
+          totals,
+          text(payload.note, 200) || text(payload.mealType, 20) || "这餐",
+        ),
+      };
+      await DB.prepare(
+        `INSERT INTO meal_corrections
+         (id, meal_id, previous_values_json, corrected_values_json, reason)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          id,
+          JSON.stringify({
+            meal: currentMeal,
+            items: currentItems.results,
+          }),
+          JSON.stringify({
+            mealType: text(payload.mealType, 20),
+            note: text(payload.note),
+            estimate,
+          }),
+          text(payload.reason, 500) || "用户手动修正",
+        )
+        .run();
       await DB.prepare(
         "UPDATE meals SET note = ?, meal_type = ? WHERE id = ?",
       )
@@ -317,7 +541,12 @@ export async function POST(request: Request) {
         )
         .run();
       await replaceMealEstimate(DB, id, estimate);
-      return Response.json({ id });
+      await learnFoodMemory(DB, estimate);
+      return Response.json({
+        id,
+        learnedItems: estimate.items.length,
+        correctionSaved: true,
+      });
     }
 
     if (action === "meal.delete") {

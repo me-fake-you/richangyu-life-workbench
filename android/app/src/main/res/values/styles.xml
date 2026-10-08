@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/workbench_forest</item>
+        <item name="colorPrimaryDark">@color/workbench_ink</item>
+        <item name="colorAccent">@color/workbench_forest</item>
+        <item name="android:colorAccent">@color/workbench_forest</item>
+        <item name="android:windowBackground">@color/workbench_paper</item>
+        <item name="android:colorBackground">@color/workbench_paper</item>
+        <item name="android:alertDialogTheme">@style/WorkbenchDialog</item>
+        <item name="android:statusBarColor">@color/workbench_paper</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+    </style>
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/workbench_paper</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/workbench_launcher</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+    <style name="WorkbenchDialog" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">@color/workbench_forest</item>
+        <item name="android:colorBackground">@color/workbench_paper</item>
+        <item name="android:windowBackground">@color/workbench_paper</item>
+    </style>
+</resources>

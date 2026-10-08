@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { assertSupportedProjectVersion } from "./helpers/project-version.mjs";
 
 test("v1.4 keeps the full system discoverable while making daily use simpler", async () => {
   const [pkgRaw, workbench, command, preferences, styles] = await Promise.all([
@@ -11,7 +12,7 @@ test("v1.4 keeps the full system discoverable while making daily use simpler", a
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(JSON.parse(pkgRaw).version, "1.5.0");
+  assertSupportedProjectVersion(JSON.parse(pkgRaw).version);
   assert.match(preferences, /workspaceMode/);
   assert.match(preferences, /scenePreset/);
   assert.match(workbench, /简洁模式/);

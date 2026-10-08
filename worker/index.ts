@@ -53,19 +53,40 @@ const worker = {
       (async () => {
         const internalOrigin =
           env.APP_INTERNAL_ORIGIN || "https://life-workbench.internal";
-        const requests = [
+        const run = async (request: Request) => {
+          const response = await handler.fetch(request, env, ctx);
+          if (!response.ok) {
+            throw new Error(
+              `日常屿后台任务执行失败：${response.status} ${await response.text()}`,
+            );
+          }
+          return response;
+        };
+        // Run the user's automation rules first. The freshness guard below then
+        // repairs a missed daily news run without duplicating a successful one.
+        await run(
           new Request(`${internalOrigin}/api/advanced`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                action: "automation.run",
-                payload: {
-                  timezoneOffset: -480,
-                  scheduledTime: controller.scheduledTime,
-                  cron: controller.cron,
-                },
-              }),
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "automation.run",
+              payload: {
+                timezoneOffset: -480,
+                scheduledTime: controller.scheduledTime,
+                cron: controller.cron,
+              },
             }),
+          }),
+        );
+        const requests = [
+          new Request(`${internalOrigin}/api/intelligence`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "daily.refreshIfStale",
+              payload: { timezoneOffset: -480 },
+            }),
+          }),
           new Request(`${internalOrigin}/api/finance`),
           new Request(`${internalOrigin}/api/ai/tasks`, {
             method: "PUT",
@@ -74,16 +95,7 @@ const worker = {
             method: "POST",
           }),
         ];
-        const responses = await Promise.all(
-          requests.map((request) => handler.fetch(request, env, ctx)),
-        );
-        for (const response of responses) {
-          if (!response.ok) {
-            throw new Error(
-              `日常屿后台任务执行失败：${response.status} ${await response.text()}`,
-            );
-          }
-        }
+        await Promise.all(requests.map(run));
       })(),
     );
   },

@@ -46,12 +46,16 @@ type Meal = {
   fatG: number;
   confidence: number;
   analysisProvider: string;
+  correctionCount: number;
+  lastCorrectedAt: string | null;
   items: MealItem[];
   photos: MealPhoto[];
 };
 
 type NutritionData = {
+  aiVision?: { provider: string; model: string; configured: boolean; verified: boolean; message: string };
   meals: Meal[];
+  memoryCount: number;
   settings: {
     calorieTarget: number;
     proteinTarget: number;
@@ -64,6 +68,7 @@ type NutritionData = {
 
 const emptyNutrition: NutritionData = {
   meals: [],
+  memoryCount: 0,
   settings: {
     calorieTarget: 2000,
     proteinTarget: 90,
@@ -129,6 +134,17 @@ function mealIcon(type: string) {
   return "加";
 }
 
+function calorieRange(calories: number, confidence: number) {
+  if (confidence >= 0.98) {
+    const rounded = Math.round(calories);
+    return `${rounded} 千卡`;
+  }
+  const margin = confidence >= 0.8 ? 0.12 : confidence >= 0.6 ? 0.2 : 0.3;
+  return `${Math.max(0, Math.round(calories * (1 - margin)))}–${Math.round(
+    calories * (1 + margin),
+  )} 千卡`;
+}
+
 function ProgressMetric({
   label,
   value,
@@ -174,13 +190,17 @@ export function NutritionCenter({
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [checkingVision, setCheckingVision] = useState(false);
+  const [visionCheck, setVisionCheck] = useState<{ state: string; message: string; checkedAt: string } | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [manual, setManual] = useState(false);
   const [lastEstimate, setLastEstimate] = useState<{
     summary: string;
     provider: string;
+    source?: string;
     confidence: number;
+    calories: number;
   } | null>(null);
 
   async function load() {
@@ -283,7 +303,9 @@ export function NutritionCenter({
         estimate?: {
           summary: string;
           provider: string;
+          source?: string;
           confidence: number;
+          calories: number;
         };
       };
       if (!response.ok) throw new Error(result.error || "保存失败。");
@@ -293,15 +315,32 @@ export function NutritionCenter({
       setManual(false);
       await load();
       onNotice(
-        result.estimate?.provider === "local"
-          ? "餐食已记录；当前使用文字或手动估算。"
-          : "餐食照片识别完成，热量已加入今日摄入。",
+        result.estimate?.source?.startsWith("vision")
+          ? "餐食已记录；图片 AI 返回了参考估算，请核对份量。"
+          : "餐食已记录；使用文字、食物记忆或手动值，不代表照片识别成功。",
       );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "保存餐食失败。");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function checkImageAI() {
+    if (checkingVision || !window.confirm("将向 Groq 发送一张非私人测试图，消耗少量现有额度；不会上传你的照片或保存餐食。继续检查？")) return;
+    setCheckingVision(true);
+    setVisionCheck(null);
+    try {
+      const response = await fetch("/api/nutrition", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "vision.check" }), signal: AbortSignal.timeout(120_000),
+      });
+      const result = await response.json() as { visionCheck?: { state: string; message: string; checkedAt: string }; error?: string };
+      if (!response.ok || !result.visionCheck) throw new Error(result.error || "未取得图片连接检查结果。");
+      setVisionCheck(result.visionCheck);
+    } catch {
+      onNotice("图片连接检查未完成，本次没有保存餐食；请稍后再试。");
+    } finally { setCheckingVision(false); }
   }
 
   async function nutritionAction(
@@ -360,9 +399,10 @@ export function NutritionCenter({
       carbsG: carbs,
       fatG: fat,
       items: meal.items,
+      reason: "用户根据实际份量修正",
     });
     await load();
-    onNotice("营养数据已按你的输入修正。");
+    onNotice("修正已保存，并加入个人食物记忆供下次估算参考。");
   }
 
   async function editTargets() {
@@ -421,12 +461,29 @@ export function NutritionCenter({
         <div>
           <span className="eyebrow">MEALS & NUTRITION</span>
           <h1>记录一日三餐，也看见身体需要什么</h1>
-          <p>上传餐食照片、确认份量，追踪每日热量和三大营养素。</p>
+          <p>
+            上传餐食照片、确认份量，追踪每日热量和三大营养素。已积累{" "}
+            {data.memoryCount} 条个人食物记忆。
+          </p>
         </div>
         <button className="primary-button" onClick={() => setModalOpen(true)}>
           <Camera size={17} /> 拍照记录一餐
         </button>
       </div>
+
+      <section className="nutrition-disclaimer" aria-live="polite" style={{ marginBottom: 18, flexWrap: "wrap" }}>
+        <Sparkles size={18} />
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+          <strong>{data.aiVision?.configured ? "图片 AI 已配置，需核实实时连接" : "图片 AI 尚未启用"}</strong>
+          <p>{data.aiVision?.message || "旧工作台未提供图片状态，不能据此认定识别可用。"}</p>
+          {data.aiVision?.model && <small style={{ overflowWrap: "anywhere" }}>{data.aiVision.provider.toUpperCase()} · {data.aiVision.model}</small>}
+          <p>有免费额度与频率限制；不自动转用付费服务。手动填写营养值时不调用图片 AI。</p>
+          {visionCheck && <p>{visionCheck.state === "verified" ? "本次检查通过" : "本次检查未通过"} · {visionCheck.message}<br />检查时间：{new Date(visionCheck.checkedAt).toLocaleString("zh-CN")}</p>}
+        </div>
+        <button type="button" className="secondary-button" disabled={checkingVision || !data.aiVision?.configured || data.aiVision.provider !== "groq"} onClick={checkImageAI}>
+          {checkingVision ? "正在检查图片 AI…" : "检查图片 AI 连接"}
+        </button>
+      </section>
 
       <div className="nutrition-datebar">
         <button onClick={() => setSelectedDate(addDays(selectedDate, -1))}>
@@ -512,11 +569,15 @@ export function NutritionCenter({
           <Sparkles size={17} />
           <div>
             <strong>
-              {lastEstimate.provider === "local"
-                ? "本地估算"
-                : `${lastEstimate.provider.toUpperCase()} 照片识别`}
+              {lastEstimate.source === "vision+memory" ? "图片估算 + 个人食物记忆"
+                : lastEstimate.source === "vision" ? `${lastEstimate.provider.toUpperCase()} 图片参考估算`
+                : lastEstimate.source === "manual" ? "手动营养值" : "文字 / 食物记忆估算"}
             </strong>
             <p>{lastEstimate.summary}</p>
+            <small>
+              建议按区间理解：{" "}
+              {calorieRange(lastEstimate.calories, lastEstimate.confidence)}
+            </small>
           </div>
           <em>可信度 {Math.round(lastEstimate.confidence * 100)}%</em>
           <button onClick={() => setLastEstimate(null)} aria-label="关闭">
@@ -554,6 +615,11 @@ export function NutritionCenter({
                         ? "本地/手动"
                         : `${meal.analysisProvider.toUpperCase()} 识别`}
                     </span>
+                    {meal.correctionCount > 0 && (
+                      <span className="meal-correction-badge">
+                        已修正 {meal.correctionCount} 次
+                      </span>
+                    )}
                   </header>
                   {meal.photos[0] && (
                     <img
@@ -575,7 +641,9 @@ export function NutritionCenter({
                     ))}
                   </div>
                   <div className="meal-macros">
-                    <strong>{Math.round(meal.estimatedCalories)} 千卡</strong>
+                    <strong>
+                      {calorieRange(meal.estimatedCalories, meal.confidence)}
+                    </strong>
                     <span>蛋白 {Math.round(meal.proteinG)}g</span>
                     <span>碳水 {Math.round(meal.carbsG)}g</span>
                     <span>脂肪 {Math.round(meal.fatG)}g</span>
@@ -647,7 +715,9 @@ export function NutritionCenter({
             <div>
               <strong>关于热量估算</strong>
               <p>
-                照片无法精确判断油、调味料和隐藏食材，结果只用于日常记录。请根据实际份量修正，不作为医疗、营养治疗或进食障碍建议。
+                照片无法精确判断油、调味料和隐藏食材，因此用热量区间而不是假装精确。
+                你的修正会形成个人食物记忆，但结果仍只用于日常记录，不作为医疗、
+                营养治疗或进食障碍建议。
               </p>
             </div>
           </section>

@@ -29,6 +29,10 @@ type OfflineAsset = {
 
 export type OfflineDiagnostics = {
   deviceId: string;
+  deviceName: string;
+  platform: string;
+  standalone: boolean;
+  notificationPermission: NotificationPermission | "unsupported";
   mutationCount: number;
   pendingCount: number;
   conflictCount: number;
@@ -52,6 +56,45 @@ export function getDeviceId() {
   const created = crypto.randomUUID();
   window.localStorage.setItem(key, created);
   return created;
+}
+
+function detectPlatform() {
+  const agent = window.navigator.userAgent;
+  if (/Android/i.test(agent)) return "Android";
+  if (/iPhone|iPad|iPod/i.test(agent)) return "iOS";
+  if (/Windows/i.test(agent)) return "Windows";
+  if (/Macintosh|Mac OS X/i.test(agent)) return "macOS";
+  if (/Linux/i.test(agent)) return "Linux";
+  return "网页设备";
+}
+
+export function getDeviceName() {
+  const key = "richangyu-device-name";
+  const saved = window.localStorage.getItem(key)?.trim();
+  if (saved) return saved;
+  const platform = detectPlatform();
+  const mobile = /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent);
+  const created = `${mobile ? "手机" : "电脑"} · ${platform}`;
+  window.localStorage.setItem(key, created);
+  return created;
+}
+
+export function setDeviceName(name: string) {
+  const normalized = name.trim().slice(0, 40);
+  if (!normalized) throw new Error("设备名称不能为空。");
+  window.localStorage.setItem("richangyu-device-name", normalized);
+  notifyChange();
+  return normalized;
+}
+
+function isStandalone() {
+  const navigatorWithStandalone = window.navigator as Navigator & {
+    standalone?: boolean;
+  };
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    navigatorWithStandalone.standalone === true
+  );
 }
 
 function openDatabase() {
@@ -135,6 +178,11 @@ export async function getOfflineDiagnostics(): Promise<OfflineDiagnostics> {
   ).connection;
   return {
     deviceId: getDeviceId(),
+    deviceName: getDeviceName(),
+    platform: detectPlatform(),
+    standalone: isStandalone(),
+    notificationPermission:
+      "Notification" in window ? Notification.permission : "unsupported",
     mutationCount: mutations.length,
     pendingCount: mutations.filter((item) => item.status === "pending").length,
     conflictCount: mutations.filter((item) => item.status === "conflict").length,
@@ -151,6 +199,31 @@ export async function getOfflineDiagnostics(): Promise<OfflineDiagnostics> {
       saveData: Boolean(connection?.saveData),
     },
   };
+}
+
+export async function updateDeviceSession(
+  diagnostics?: OfflineDiagnostics,
+) {
+  const state = diagnostics ?? (await getOfflineDiagnostics());
+  const response = await fetch("/api/sync", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceId: state.deviceId,
+      name: state.deviceName,
+      platform: state.platform,
+      appVersion: "1.6.0",
+      standalone: state.standalone,
+      notificationPermission: state.notificationPermission,
+      pendingCount: state.pendingCount,
+      conflictCount: state.conflictCount,
+      failedCount: state.failedCount,
+      lastSyncedAt: state.lastSyncedAt,
+    }),
+  });
+  const result = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(result.error || "设备状态登记失败。");
+  return result;
 }
 
 export async function exportOfflineQueue() {

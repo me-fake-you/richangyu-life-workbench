@@ -21,6 +21,19 @@ type ClientMutation = {
   createdAt: string;
 };
 
+type DeviceHeartbeat = {
+  deviceId: string;
+  name: string;
+  platform: string;
+  appVersion: string;
+  standalone: boolean;
+  notificationPermission: string;
+  pendingCount: number;
+  conflictCount: number;
+  failedCount: number;
+  lastSyncedAt: string | null;
+};
+
 function text(value: unknown, max = 5000) {
   return String(value ?? "").trim().slice(0, max);
 }
@@ -74,6 +87,62 @@ function normalizeMutation(value: unknown): ClientMutation | null {
         : {},
     createdAt: timestamp(row.createdAt),
   };
+}
+
+function normalizeDeviceHeartbeat(value: unknown): DeviceHeartbeat | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as JsonObject;
+  const deviceId = text(row.deviceId, 120);
+  if (!deviceId) return null;
+  return {
+    deviceId,
+    name: text(row.name, 40) || "未命名设备",
+    platform: text(row.platform, 40),
+    appVersion: text(row.appVersion, 30),
+    standalone: row.standalone === true,
+    notificationPermission: text(row.notificationPermission, 30) || "default",
+    pendingCount: Math.max(0, Number(row.pendingCount) || 0),
+    conflictCount: Math.max(0, Number(row.conflictCount) || 0),
+    failedCount: Math.max(0, Number(row.failedCount) || 0),
+    lastSyncedAt: row.lastSyncedAt ? timestamp(row.lastSyncedAt) : null,
+  };
+}
+
+async function saveDeviceHeartbeat(
+  DB: D1Database,
+  heartbeat: DeviceHeartbeat,
+) {
+  await DB.prepare(
+    `INSERT INTO device_sessions
+     (device_id, name, platform, app_version, standalone,
+      notification_permission, pending_count, conflict_count, failed_count,
+      last_seen_at, last_synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+     ON CONFLICT(device_id) DO UPDATE SET
+       name = excluded.name,
+       platform = excluded.platform,
+       app_version = excluded.app_version,
+       standalone = excluded.standalone,
+       notification_permission = excluded.notification_permission,
+       pending_count = excluded.pending_count,
+       conflict_count = excluded.conflict_count,
+       failed_count = excluded.failed_count,
+       last_seen_at = CURRENT_TIMESTAMP,
+       last_synced_at = COALESCE(excluded.last_synced_at, device_sessions.last_synced_at)`,
+  )
+    .bind(
+      heartbeat.deviceId,
+      heartbeat.name,
+      heartbeat.platform,
+      heartbeat.appVersion,
+      heartbeat.standalone ? 1 : 0,
+      heartbeat.notificationPermission,
+      heartbeat.pendingCount,
+      heartbeat.conflictCount,
+      heartbeat.failedCount,
+      heartbeat.lastSyncedAt,
+    )
+    .run();
 }
 
 async function saveReceipt(
@@ -294,7 +363,7 @@ export async function GET(request: Request) {
             created_at: string;
           }>()
       : { results: [] };
-    const [latestAudit, failed, latestBackup, receiptStats] = await DB.batch([
+    const [latestAudit, failed, latestBackup, receiptStats, devices] = await DB.batch([
       DB.prepare("SELECT MAX(created_at) AS value FROM audit_logs"),
       DB.prepare(
         `SELECT COUNT(*) AS value FROM client_mutations
@@ -315,6 +384,13 @@ export async function GET(request: Request) {
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
            MAX(processed_at) AS last_processed_at
          FROM client_mutations`,
+      ),
+      DB.prepare(
+        `SELECT device_id, name, platform, app_version, standalone,
+                notification_permission, pending_count, conflict_count,
+                failed_count, first_seen_at, last_seen_at, last_synced_at
+         FROM device_sessions
+         ORDER BY last_seen_at DESC LIMIT 20`,
       ),
     ]);
     const token = String(
@@ -348,6 +424,20 @@ export async function GET(request: Request) {
         failed: Number(receipts.failed) || 0,
         lastProcessedAt: databaseIso(receipts.last_processed_at),
       },
+      devices: devices.results.map((row) => ({
+        deviceId: row.device_id,
+        name: row.name,
+        platform: row.platform,
+        appVersion: row.app_version,
+        standalone: Boolean(row.standalone),
+        notificationPermission: row.notification_permission,
+        pendingCount: Number(row.pending_count) || 0,
+        conflictCount: Number(row.conflict_count) || 0,
+        failedCount: Number(row.failed_count) || 0,
+        firstSeenAt: databaseIso(row.first_seen_at),
+        lastSeenAt: databaseIso(row.last_seen_at),
+        lastSyncedAt: databaseIso(row.last_synced_at),
+      })),
       changes: changes.results.map((row) => ({
         id: row.id,
         action: row.action,
@@ -362,6 +452,30 @@ export async function GET(request: Request) {
     return Response.json(
       {
         error: error instanceof Error ? error.message : "同步状态读取失败。",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    await ensureAdvancedSchema();
+    const { DB } = getLifeBindings();
+    const heartbeat = normalizeDeviceHeartbeat(await request.json());
+    if (!heartbeat) {
+      return Response.json({ error: "缺少有效的设备标识。" }, { status: 400 });
+    }
+    await saveDeviceHeartbeat(DB, heartbeat);
+    return Response.json({
+      ok: true,
+      deviceId: heartbeat.deviceId,
+      serverTime: new Date().toISOString(),
+    });
+  } catch (error) {
+    return Response.json(
+      {
+        error: error instanceof Error ? error.message : "设备状态登记失败。",
       },
       { status: 500 },
     );
@@ -433,6 +547,17 @@ export async function POST(request: Request) {
         await saveReceipt(DB, mutation, "failed", { error: message });
         results.push({ id: mutation.id, status: "failed", error: message });
       }
+    }
+    const deviceId = mutations.find((item) => item.deviceId)?.deviceId;
+    if (deviceId) {
+      await DB.prepare(
+        `UPDATE device_sessions
+         SET last_seen_at = CURRENT_TIMESTAMP,
+             last_synced_at = CURRENT_TIMESTAMP
+         WHERE device_id = ?`,
+      )
+        .bind(deviceId)
+        .run();
     }
     return Response.json({
       processed: results.filter((item) => item.status === "processed").length,

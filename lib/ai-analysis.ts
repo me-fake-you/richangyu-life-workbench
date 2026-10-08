@@ -60,6 +60,8 @@ export function buildAiTransparency({
     costLabel:
       normalizedProvider === "local"
         ? "本地分析 · ¥0"
+        : normalizedProvider === "groq"
+          ? "Groq 免费方案 · 有额度限制，不自动切换付费模型"
         : normalizedProvider === "nvidia"
           ? "NVIDIA 免费额度 / 以账户账单为准"
           : "模型平台计费 / 以账户账单为准",

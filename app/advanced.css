@@ -178,7 +178,10 @@
 
 .config-priorities {
   display: grid;
+  width: 100%;
   gap: 9px;
+  background: transparent;
+  text-align: left;
 }
 
 .config-priorities span {
@@ -827,6 +830,16 @@
   font-size: 13px;
 }
 
+.estimate-notice > div {
+  min-width: 0;
+}
+
+.estimate-notice > div > small {
+  display: block;
+  margin-top: 4px;
+  color: #8f755d;
+}
+
 .nutrition-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(270px, 0.7fr);
@@ -884,6 +897,16 @@
   border-radius: 999px;
   background: #f1ecf6;
   color: #72558e;
+  font-size: 11px;
+}
+
+.meal-content .meal-correction-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #edf7f1;
+  color: #4f7f66;
   font-size: 11px;
 }
 
@@ -1503,6 +1526,52 @@
   margin: 0;
   color: #82777c;
   line-height: 1.7;
+}
+
+.command-navigation {
+  margin-top: 20px;
+}
+
+.command-navigation > small {
+  display: block;
+  margin-bottom: 8px;
+  color: #9a8c94;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.command-navigation > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.command-navigation button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid rgba(102, 76, 110, 0.09);
+  border-radius: 11px;
+  background: white;
+  color: #665b69;
+  text-align: left;
+}
+
+.command-navigation button:hover {
+  border-color: rgba(113, 76, 130, 0.24);
+  background: #f4edf6;
+  color: var(--purple);
+}
+
+.command-navigation button span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .command-examples {
@@ -2814,6 +2883,10 @@
 
   .command-quick-actions {
     flex-wrap: wrap;
+  }
+
+  .command-navigation > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .three-track-summary {
