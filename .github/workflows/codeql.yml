@@ -2,7 +2,7 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/workbench-ai-20261002-c258dd87']
   pull_request:
     branches: [main]
   schedule:
