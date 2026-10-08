@@ -42,3 +42,20 @@ node node_modules/wrangler/bin/wrangler.js deploy --config multiuser/wrangler.js
 检查使用内存 SQLite 执行真实 SQL，通过 D1 方法适配器验证空间归属，不写入个人数据库。构建为 dry-run，不部署线上站点。具体通过情况以当次结果或 GitHub Actions 为准。
 
 [阶段说明和后续验收](../docs/MULTIUSER-FOUNDATION-20261004.md)
+
+
+## Isolated content foundation (2026-10-08)
+
+An opt-in `/api/content` endpoint now provides plain records and one-off schedules.
+It remains disabled unless `MULTIUSER_CONTENT_ENABLED=true`, alongside the existing
+verified Sites identity gateway and separate database requirements. Do not enable
+it on an ordinary publicly reachable Worker that accepts spoofable identity headers.
+
+Ownership is resolved by joining the authenticated stable subject to its workspace.
+Clients cannot select an owner or workspace. Creates use server-generated IDs;
+updates and soft deletes require the observed revision. Request receipts make
+retries idempotent. Lists return at most 100 items and report truncation.
+
+This is not a publicly launched multiuser App. Nutrition, check-ins, finance, AI,
+attachments, backup, public registration, pagination and the native multiuser
+login experience are not implemented here. The private single-user site is unchanged.

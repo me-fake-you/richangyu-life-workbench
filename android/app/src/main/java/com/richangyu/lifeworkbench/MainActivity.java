@@ -65,6 +65,10 @@ import java.util.UUID;
 public class MainActivity extends AppCompatActivity {
     private String baseUrl = "";
     private NativeAiSheet aiSheet;
+    private NativeWorkSheet workSheet;
+    private NativeDraftSheet draftSheet;
+    private NativeDraftStore drafts;
+    private String activeDraftScope = "";
     private NativeNutritionSheet nutritionSheet;
     private NativeNutritionPhotoPicker nutritionPhotoPicker;
     private boolean bindingChanging;
@@ -93,6 +97,8 @@ public class MainActivity extends AppCompatActivity {
     private JSONObject data;
     private String tab = "home";
     private String lastRenderedTab = "";
+    private String featureQuery = "";
+    private NativeFeatureCatalog.Scope featureScope = NativeFeatureCatalog.Scope.ALL;
     private String scheduleScope = WorkbenchSchedulePolicy.ALL;
     private String scheduleQuery = "";
     private Runnable scheduleFilterTask;
@@ -130,6 +136,8 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         baseUrl = WorkbenchClientPolicy.normalizeOrigin(prefs.getString("workbench_url", ""));
         saveOutcomeUnknown = prefs.getBoolean("save_outcome_unknown", false);
+        activeDraftScope = prefs.getString("active_scope:" + baseUrl, "");
+        drafts = new NativeDraftStore(this, activeDraftScope);
         mobileApi = new MobileApiBridge(baseUrl.isEmpty() ? "https://unconfigured.invalid" : baseUrl);
         updateChecker = new NativeUpdateChecker();
         buildShell();
@@ -192,7 +200,7 @@ public class MainActivity extends AppCompatActivity {
         TextView brand = text("日常屿", 22, INK);
         brand.setTypeface(NativeUi.DISPLAY);
         identity.addView(brand);
-        identity.addView(text("生活工作台", 11, MUTED));
+        identity.addView(text("生活工作台", 13, MUTED));
         header.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
         syncLabel = text(WorkbenchBindingPolicy.entryState(baseUrl) == WorkbenchBindingPolicy.EntryState.NEEDS_BINDING
             ? "待绑定" : "等待授权", 12, GREEN);
@@ -278,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
             View item = nav.getChildAt(i);
             NativeUi.selectNav(item, tab.equals(item.getTag()));
         }
-        if (data == null) {
+        if (data == null && !"features".equals(tab)) {
             showError("尚未连接工作台。连接成功后会在这里显示原生打卡、记录和日程页面。");
             return;
         }
@@ -291,7 +299,8 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout body = page();
         scroll.addView(body);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-        if ("records".equals(tab)) renderRecords(body);
+        if ("features".equals(tab)) renderFeatures(body);
+        else if ("records".equals(tab)) renderRecords(body);
         else if ("schedule".equals(tab)) renderSchedules(body);
         else if ("me".equals(tab)) renderMe(body);
         else renderHome(body);
@@ -300,59 +309,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void renderHome(LinearLayout body) {
-        JSONObject user = data.optJSONObject("user");
-        String name = user == null ? "你好" : user.optString("displayName", "你好");
-        Calendar clock = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
-        int hour = clock.get(Calendar.HOUR_OF_DAY);
-        String greeting = hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
-        SimpleDateFormat date = new SimpleDateFormat("M月d日 EEEE", Locale.CHINA);
-        date.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-        TextView day = text(date.format(new Date()) + " · 北京时间", 12, MUTED);
-        body.addView(day);
-        TextView heading = text(greeting + "，" + name, 28, INK);
-        heading.setTypeface(NativeUi.DISPLAY);
-        heading.setMaxLines(2);
-        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heading.setPadding(0, dp(6), 0, dp(4));
-        body.addView(heading);
-        TextView subtitle = text("今天的事，一件一件慢慢做好。", 13, MUTED);
-        subtitle.setPadding(0, 0, 0, dp(18));
-        body.addView(subtitle);
-
-        addCheckinCard(body);
+        JSONObject user=data.optJSONObject("user");
+        Calendar now=Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+        SimpleDateFormat format=new SimpleDateFormat("M月d日 EEEE",Locale.CHINA);format.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        body.addView(text(format.format(now.getTime())+" · 北京时间",13,MUTED));
+        TextView heading=text("今天，按自己的节奏",27,INK);heading.setTypeface(NativeUi.DISPLAY);heading.setPadding(0,dp(6),0,dp(6));body.addView(heading);
+        TextView account=text(user==null?"":user.optString("displayName"),13,MUTED);account.setMaxLines(1);account.setEllipsize(android.text.TextUtils.TruncateAt.END);account.setPadding(0,0,0,dp(14));body.addView(account);
         addQuickActions(body);
-        addNutritionEntry(body);
-
-        JSONObject summary = data.optJSONObject("summary");
-        LinearLayout overview = card();
-        TextView overviewTitle = text("今天的小进展", 16, INK);
-        overviewTitle.setTypeface(NativeUi.MEDIUM);
-        overview.addView(overviewTitle);
-        LinearLayout numbers = new LinearLayout(this);
-        numbers.setPadding(0, dp(10), 0, 0);
-        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("todayRecords"),
-            "今日记录", () -> selectTab("records")), new LinearLayout.LayoutParams(0, -2, 1));
-        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("upcomingSchedules"),
-            "近期日程", () -> selectTab("schedule")), new LinearLayout.LayoutParams(0, -2, 1));
-        numbers.addView(NativeUi.stat(this, summary == null ? 0 : summary.optInt("inboxPending"),
-            "待整理", null), new LinearLayout.LayoutParams(0, -2, 1));
-        overview.addView(numbers);
-        body.addView(overview);
-
-        sectionTitle(body, "近期日程");
-        JSONArray schedules = data.optJSONArray("schedules");
-        if (schedules == null || schedules.length() == 0) {
-            emptyCard(body, "给接下来的时间留个位置", "会议、学习或出行，都可以从这里开始。", "安排日程", this::showScheduleDialog);
-        } else {
-            for (int i = 0; i < Math.min(3, schedules.length()); i++) addSchedule(body, schedules.optJSONObject(i));
-        }
-        sectionTitle(body, "最近记录");
-        JSONArray records = data.optJSONArray("records");
-        if (records == null || records.length() == 0) {
-            emptyCard(body, "值得记住的，随手记下来", "不用写很长，一句话也可以。", "写一条记录", this::showRecordDialog);
-        } else {
-            for (int i = 0; i < Math.min(3, records.length()); i++) addRecord(body, records.optJSONObject(i));
-        }
+        JSONObject summary=data.optJSONObject("summary");body.addView(text("今日记录 "+(summary==null?0:summary.optInt("todayRecords"))+" · 本机草稿 "+draftCount(),13,MUTED));
+        sectionTitle(body,"今天的安排");
+        JSONArray schedules=data.optJSONArray("schedules");List<WorkbenchSchedulePolicy.Entry> rows=new ArrayList<>();
+        if(schedules!=null)for(int i=0;i<schedules.length();i++){JSONObject item=schedules.optJSONObject(i);if(item!=null)rows.add(new WorkbenchSchedulePolicy.Entry(i,item.optString("title"),item.optString("place"),item.optString("note"),item.optString("startAt"),item.optString("endAt")));}
+        List<WorkbenchSchedulePolicy.Entry> today=WorkbenchSchedulePolicy.select(rows,WorkbenchSchedulePolicy.TODAY,"",System.currentTimeMillis());
+        if(today.isEmpty())emptyCard(body,"今天的时间，还可以安排","本次已同步日程中，没有今天的安排。","安排日程",this::showScheduleDialog);
+        else for(int i=0;i<Math.min(3,today.size());i++)addSchedule(body,schedules.optJSONObject(today.get(i).sourceIndex));
+        addCheckinCard(body);
+        sectionTitle(body,"最近记录");JSONArray records=data.optJSONArray("records");
+        if(records==null||records.length()==0)emptyCard(body,"随手记下今天","本机草稿与云端记录会明确分开。","写一条记录",this::showRecordDialog);
+        else for(int i=0;i<Math.min(3,records.length());i++)addRecord(body,records.optJSONObject(i));
     }
 
     private void addNutritionEntry(LinearLayout body) {
@@ -419,15 +393,174 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addQuickActions(LinearLayout body) {
-        sectionTitle(body, "快捷入口");
-        LinearLayout first = quickRow();
-        first.addView(quickAction("AI 帮我安排", "说一句，帮你整理", "ai", GREEN, this::showAi), quickParams(true));
-        first.addView(quickAction("写一条记录", "记下想法与生活", "records", BLUE, this::showRecordDialog), quickParams(false));
-        body.addView(first);
-        LinearLayout second = quickRow();
-        second.addView(quickAction("安排日程", "把计划放进时间里", "schedule", GREEN, this::showScheduleDialog), quickParams(true));
-        second.addView(quickAction("随手收集", "先记下，稍后整理", "inbox", ROSE, this::showInboxDialog), quickParams(false));
-        body.addView(second);
+        LinearLayout heading=quickRow();heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text("常用功能",18,INK);title.setTypeface(NativeUi.MEDIUM);heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        Button all=secondaryButton("全部功能");all.setOnClickListener(v->selectTab("features"));heading.addView(all,new LinearLayout.LayoutParams(-2,-2));body.addView(heading);
+        LinearLayout first=quickRow();
+        first.addView(quickAction("热量与饮食","记一餐、调整份量","nutrition",GREEN,this::showNutrition),quickParams(true));
+        first.addView(quickAction("兼职与结算","工时、待收、到账","schedule",BLUE,this::showWork),quickParams(false));body.addView(first);
+        LinearLayout second=quickRow();
+        second.addView(quickAction("今日安排","看看今天要做什么","schedule",GREEN,()->{scheduleScope=WorkbenchSchedulePolicy.TODAY;selectTab("schedule");}),quickParams(true));
+        second.addView(quickAction("AI 助手","先预览，再确认执行","ai",GREEN,this::showAi),quickParams(false));body.addView(second);
+        LinearLayout capture=quickRow();String[] names={"写记录","随手收集","本机草稿"};Runnable[] actions={this::showRecordDialog,this::showInboxDialog,this::showDrafts};
+        for(int i=0;i<names.length;i++){final Runnable action=actions[i];Button button=secondaryButton(names[i]);button.setMinWidth(0);button.setMinimumWidth(0);button.setTextSize(13);button.setOnClickListener(v->action.run());capture.addView(button,new LinearLayout.LayoutParams(0,-2,1));}body.addView(capture);
+    }
+
+    private void renderFeatures(LinearLayout body) {
+        TextView eyebrow = text("EXPLORE / 功能地图", 11, GREEN);
+        body.addView(eyebrow);
+        TextView title = text("想做的事，在这里找到", 26, INK);
+        title.setTypeface(NativeUi.DISPLAY);
+        title.setPadding(0, dp(7), 0, dp(9));
+        body.addView(title);
+        TextView hint = text("App 内入口可以直接使用；尚未迁移的功能会标为网页版，不会自动跳转。", 13, MUTED);
+        hint.setPadding(0, 0, 0, dp(12));
+        body.addView(hint);
+        if (data == null || !bridgeReady) {
+            TextView connection = text("当前未读取云端数据。浏览入口无需登录，使用云端功能前需先连接工作台。", 12, GREEN);
+            connection.setPadding(0, 0, 0, dp(12));
+            body.addView(connection);
+        }
+        EditText search = input("搜索热量、兼职、日程、财务…", false);
+        search.setContentDescription("搜索工作台功能");
+        search.setText(featureQuery);
+        body.addView(search);
+        LinearLayout scopes = quickRow();
+        final NativeFeatureCatalog.Scope[] values = {
+            NativeFeatureCatalog.Scope.ALL, NativeFeatureCatalog.Scope.NATIVE, NativeFeatureCatalog.Scope.WEB
+        };
+        String[] labels = { "全部", "App 内", "网页版" };
+        final List<Button> buttons = new ArrayList<>();
+        TextView count = text("", 12, MUTED);
+        count.setPadding(dp(2), dp(14), dp(2), 0);
+        LinearLayout results = NativeUi.column(this);
+        for (int i = 0; i < values.length; i++) {
+            final NativeFeatureCatalog.Scope scope = values[i];
+            Button filter = secondaryButton(labels[i]);
+            filter.setMinWidth(0);
+            filter.setMinimumWidth(0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+            params.setMargins(i == 0 ? 0 : dp(4), 0, i == values.length - 1 ? 0 : dp(4), 0);
+            scopes.addView(filter, params);
+            buttons.add(filter);
+            filter.setOnClickListener(v -> {
+                featureScope = scope;
+                updateFeatureFilters(buttons, values);
+                renderFeatureResults(results, count);
+            });
+        }
+        body.addView(scopes);
+        body.addView(count);
+        body.addView(results);
+        Button back = secondaryButton("返回首页");
+        back.setOnClickListener(v -> selectTab("home"));
+        body.addView(back);
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable value) {
+                featureQuery = value.toString();
+                renderFeatureResults(results, count);
+            }
+        });
+        updateFeatureFilters(buttons, values);
+        renderFeatureResults(results, count);
+    }
+
+    private void updateFeatureFilters(List<Button> buttons, NativeFeatureCatalog.Scope[] values) {
+        for (int i = 0; i < buttons.size(); i++) {
+            boolean selected = values[i] == featureScope;
+            NativeUi.decorateButton(buttons.get(i), selected ? GREEN : Color.WHITE,
+                selected ? Color.WHITE : GREEN, selected ? Color.TRANSPARENT : NativeUi.BORDER);
+            buttons.get(i).setSelected(selected);
+        }
+    }
+
+    private void renderFeatureResults(LinearLayout results, TextView count) {
+        results.removeAllViews();
+        List<NativeFeatureCatalog.Entry> matches = NativeFeatureCatalog.search(featureQuery, featureScope);
+        int nativeCount = 0;
+        for (NativeFeatureCatalog.Entry feature : matches) if (feature.nativeInApp) nativeCount++;
+        count.setText("找到 " + matches.size() + " 项 · App 内 " + nativeCount
+            + " 项 · 网页版 " + (matches.size() - nativeCount) + " 项");
+        if (matches.isEmpty()) {
+            emptyCard(results, "没有找到这个入口", "试试“饮食”“打卡”或“日程”，也可以清空搜索查看全部功能。",
+                "清空搜索", () -> {
+                    featureQuery = "";
+                    featureScope = NativeFeatureCatalog.Scope.ALL;
+                    render();
+                });
+            return;
+        }
+        Boolean previousNative = null;
+        for (NativeFeatureCatalog.Entry feature : matches) {
+            if (previousNative == null || previousNative.booleanValue() != feature.nativeInApp) {
+                sectionTitle(results, feature.nativeInApp ? "App 内入口" : "仍在网页版的功能");
+                previousNative = feature.nativeInApp;
+            }
+            LinearLayout box = card();
+            LinearLayout heading = quickRow();
+            heading.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title = text(feature.title, 18, INK);
+            title.setTypeface(NativeUi.MEDIUM);
+            heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            heading.addView(NativeUi.badge(this, feature.nativeInApp ? "App 内" : "网页版",
+                feature.nativeInApp ? PALE_GREEN : 0xFFF5EBD9, GREEN));
+            box.addView(heading);
+            TextView detail = text(feature.description, 13, MUTED);
+            detail.setPadding(0, dp(9), 0, dp(9));
+            box.addView(detail);
+            Button open = feature.nativeInApp ? primaryButton("打开" + feature.title) : secondaryButton("查看使用说明");
+            open.setOnClickListener(v -> openFeature(feature));
+            box.addView(open);
+            results.addView(box);
+        }
+    }
+
+    private void openFeature(NativeFeatureCatalog.Entry feature) {
+        if (!feature.nativeInApp) { showWebFeatureInfo(feature); return; }
+        if ("drafts".equals(feature.key)) { showDrafts(); return; }
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || nutritionSheet != null) {
+            Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!bridgeReady || data == null) { showAuth(); return; }
+        if ("nutrition".equals(feature.key)) showNutrition();
+        else if ("work-hours".equals(feature.key) || "settlement".equals(feature.key)) showWork();
+        else if ("records".equals(feature.key)) selectTab("records");
+        else if ("schedule".equals(feature.key)) selectTab("schedule");
+        else if ("checkin".equals(feature.key)) openFeatureCheckin("专注打卡");
+        else if ("capture".equals(feature.key)) showInboxDialog();
+        else if ("ai".equals(feature.key)) showAi();
+    }
+
+    private void openFeatureCheckin(String initialTitle) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || nutritionSheet != null) {
+            Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!bridgeReady || data == null) { showAuth(); return; }
+        JSONObject active = data.optJSONObject("activeCheckin");
+        if (active == null) showStartCheckinDialog(initialTitle);
+        else {
+            Toast.makeText(this, "已有打卡正在进行，不会再创建一段计时。", Toast.LENGTH_SHORT).show();
+            showStopCheckinDialog(active);
+        }
+    }
+
+    private void showWebFeatureInfo(NativeFeatureCatalog.Entry feature) {
+        new AlertDialog.Builder(this).setTitle(feature.title + " · 网页版")
+            .setMessage(feature.description + "\n\n这不是已经完成的原生功能。若选择打开完整版网页，请在网页中进入“"
+                + feature.title + "”对应模块。网页可能需要单独登录；不会开放你的私人站点。")
+            .setNegativeButton("留在 App", null)
+            .setPositiveButton(baseUrl.isEmpty() ? "先绑定工作台" : "打开完整版网页", (dialog, which) -> {
+                String origin = WorkbenchClientPolicy.normalizeOrigin(baseUrl);
+                if (origin.isEmpty()) { showBinding(); return; }
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(origin))); }
+                catch (ActivityNotFoundException error) {
+                    Toast.makeText(this, "没有可用浏览器，请先安装或启用浏览器。", Toast.LENGTH_LONG).show();
+                }
+            }).show();
     }
 
     private LinearLayout quickRow() {
@@ -444,10 +577,12 @@ public class MainActivity extends AppCompatActivity {
 
     private View quickAction(String title, String hint, String icon, int accent, Runnable action) {
         LinearLayout item = NativeUi.column(this);
-        item.setMinimumHeight(dp(120));
+        item.setMinimumHeight(dp(98));
         item.setPadding(dp(15), dp(14), dp(14), dp(14));
         item.setBackground(NativeUi.touch(this, Color.WHITE, 20, NativeUi.BORDER));
         item.setOnClickListener(v -> action.run());
+        item.setFocusable(true);
+        item.setContentDescription(title + "，" + hint);
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         FrameLayout badge = new FrameLayout(this);
@@ -640,6 +775,11 @@ public class MainActivity extends AppCompatActivity {
         account.addView(version);
         body.addView(account);
 
+        Button features = secondaryButton("全部功能与使用入口");
+        features.setOnClickListener(v -> selectTab("features"));
+        body.addView(features);
+        Button work=primaryButton("兼职工时与结算");work.setOnClickListener(v->showWork());body.addView(work);
+        Button local=secondaryButton("本机草稿 · "+draftCount());local.setOnClickListener(v->showDrafts());body.addView(local);
         addNutritionEntry(body);
         sectionTitle(body, "安装与更新");
         LinearLayout updates = card();
@@ -711,6 +851,9 @@ public class MainActivity extends AppCompatActivity {
                     bridgeReady = false;
                     mobileApi.cancelPending();
                     resetScheduleFilters();
+                    if(workSheet!=null)workSheet.close();if(draftSheet!=null)draftSheet.close();
+                    getSharedPreferences("native_workbench",MODE_PRIVATE).edit().remove("active_scope:"+baseUrl).apply();
+                    activeDraftScope="";drafts=new NativeDraftStore(this,"");
                     data = null;
                     syncLabel.setText("需要授权");
                     showError("请重新连接工作台。");
@@ -1023,13 +1166,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showStartCheckinDialog() {
+        showStartCheckinDialog("专注打卡");
+    }
+
+    private void showStartCheckinDialog(String initialTitle) {
         LinearLayout form = dialogForm();
         EditText title = input("这次要专注什么？", false);
-        title.setText("专注打卡");
+        title.setText(initialTitle);
         form.addView(title);
         new AlertDialog.Builder(this)
-            .setTitle("开始打卡")
-            .setMessage("开始后可以继续使用 App，完成时点击结束。")
+            .setTitle("兼职打卡".equals(initialTitle) ? "记录兼职工时" : "开始打卡")
+            .setMessage("兼职打卡".equals(initialTitle)
+                ? "只记录这段工作的时间，不自动计算工资、应收或结算。完成后点击结束并保存。"
+                : "开始后可以继续使用 App，完成时点击结束。")
             .setView(form)
             .setNegativeButton("取消", null)
             .setPositiveButton("开始", (dialog, which) -> {
@@ -1057,75 +1206,77 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showRecordDialog() {
-        LinearLayout form = dialogForm();
-        EditText title = input("标题（可选）", false);
-        EditText body = input("现在发生了什么？", true);
-        form.addView(title);
-        form.addView(body);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("新建记录").setView(scrollForm(form))
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存", null).create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                if (title.getText().toString().trim().isEmpty() && body.getText().toString().trim().isEmpty()) {
-                    body.setError("请填写记录内容。"); return;
-                }
-                JSONObject payload = basePayload("event.create");
-                put(payload, "title", title.getText().toString());
-                put(payload, "content", body.getText().toString());
-                put(payload, "happenedAt", iso(new Date()));
-                submit(payload, "记录已保存", dialog::dismiss);
-            }));
-        dialog.show();
+        LinearLayout form=dialogForm();EditText title=input("标题（可选）",false),body=input("现在发生了什么？",true);form.addView(title);form.addView(body);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("新建记录").setView(scrollForm(form)).setNegativeButton("取消",null)
+            .setNeutralButton("存为本机草稿",null).setPositiveButton("联网保存",null).create();
+        dialog.setOnShowListener(d->{
+            PayloadFactory values=()->{
+                if(title.getText().toString().trim().isEmpty()&&body.getText().toString().trim().isEmpty()){body.setError("请填写内容");return null;}
+                JSONObject p=basePayload("event.create");put(p,"title",title.getText().toString());put(p,"content",body.getText().toString());put(p,"happenedAt",iso(new Date()));return p;
+            };
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)saveDraft(p,dialog);});
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)submit(p,"记录已保存",dialog::dismiss);});
+        });dialog.show();
     }
 
     private void showInboxDialog() {
-        LinearLayout form = dialogForm();
-        EditText body = input("先记下来，稍后再整理", true);
-        form.addView(body);
-        new AlertDialog.Builder(this).setTitle("放入收件箱").setView(form)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存", (dialog, which) -> {
-                JSONObject payload = basePayload("inbox.create");
-                put(payload, "content", body.getText().toString());
-                submit(payload, "已放入收件箱");
-            }).show();
+        LinearLayout form=dialogForm();EditText body=input("先记下来，稍后再整理",true);form.addView(body);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("放入收件箱").setView(scrollForm(form)).setNegativeButton("取消",null)
+            .setNeutralButton("存为本机草稿",null).setPositiveButton("联网保存",null).create();
+        dialog.setOnShowListener(d->{
+            PayloadFactory values=()->{if(body.getText().toString().trim().isEmpty()){body.setError("请填写内容");return null;}JSONObject p=basePayload("inbox.create");put(p,"content",body.getText().toString());return p;};
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)saveDraft(p,dialog);});
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)submit(p,"已放入收件箱",dialog::dismiss);});
+        });dialog.show();
     }
 
     private void showScheduleDialog() {
-        LinearLayout form = dialogForm();
-        EditText title = input("日程名称", false);
-        EditText place = input("地点（可选）", false);
-        Calendar start = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"), Locale.CHINA);
-        start.add(Calendar.HOUR_OF_DAY, 1);
-        start.set(Calendar.SECOND, 0);
-        start.set(Calendar.MILLISECOND, 0);
-        Calendar end = (Calendar) start.clone();
-        end.add(Calendar.HOUR_OF_DAY, 1);
-        Button time = secondaryButton(scheduleLabel(start));
-        Button endTime = secondaryButton("结束：" + scheduleLabel(end));
-        time.setOnClickListener(v -> pickDateTime(start, time, () -> {
-            if (!end.after(start)) end.setTimeInMillis(start.getTimeInMillis() + 3600000);
-            endTime.setText("结束：" + scheduleLabel(end));
-        }));
-        endTime.setOnClickListener(v -> pickDateTime(end, endTime, () -> endTime.setText("结束：" + scheduleLabel(end))));
-        form.addView(title);
-        form.addView(time);
-        form.addView(endTime);
-        form.addView(place);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("新建日程").setView(scrollForm(form))
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存", null).create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                if (title.getText().toString().trim().isEmpty()) { title.setError("请填写日程名称。"); return; }
-                if (!end.after(start)) { Toast.makeText(this, "结束时间必须晚于开始时间。", Toast.LENGTH_LONG).show(); return; }
-                JSONObject payload = basePayload("schedule.create");
-                put(payload, "title", title.getText().toString());
-                put(payload, "place", place.getText().toString());
-                put(payload, "startAt", iso(start.getTime()));
-                put(payload, "endAt", iso(end.getTime()));
-                submit(payload, "日程已保存", dialog::dismiss);
-            }));
-        dialog.show();
+        LinearLayout form=dialogForm();EditText title=input("日程名称",false),place=input("地点（可选）",false),note=input("备注（可选）",true);
+        Calendar start=Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"),Locale.CHINA);start.add(Calendar.HOUR_OF_DAY,1);start.set(Calendar.SECOND,0);start.set(Calendar.MILLISECOND,0);
+        Calendar end=(Calendar)start.clone();end.add(Calendar.HOUR_OF_DAY,1);
+        Button time=secondaryButton(scheduleLabel(start)),endTime=secondaryButton("结束："+scheduleLabel(end));
+        time.setOnClickListener(v->pickDateTime(start,time,()->{if(!end.after(start))end.setTimeInMillis(start.getTimeInMillis()+3600000);endTime.setText("结束："+scheduleLabel(end));}));
+        endTime.setOnClickListener(v->pickDateTime(end,endTime,()->endTime.setText("结束："+scheduleLabel(end))));
+        form.addView(title);form.addView(time);form.addView(endTime);form.addView(place);form.addView(note);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("新建日程").setView(scrollForm(form)).setNegativeButton("取消",null)
+            .setNeutralButton("存为本机草稿",null).setPositiveButton("联网保存",null).create();
+        dialog.setOnShowListener(d->{
+            PayloadFactory values=()->{
+                if(title.getText().toString().trim().isEmpty()){title.setError("请填写日程名称");return null;}
+                if(!end.after(start)){Toast.makeText(this,"结束时间必须晚于开始时间",Toast.LENGTH_LONG).show();return null;}
+                JSONObject p=basePayload("schedule.create");put(p,"title",title.getText().toString());put(p,"place",place.getText().toString());put(p,"note",note.getText().toString());put(p,"startAt",iso(start.getTime()));put(p,"endAt",iso(end.getTime()));return p;
+            };
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)saveDraft(p,dialog);});
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{JSONObject p=values.create();if(p!=null)submit(p,"日程已保存",dialog::dismiss);});
+        });dialog.show();
+    }
+
+    private int draftCount() { try{return drafts==null?0:drafts.list().length();}catch(Exception ignored){return 0;} }
+    private void saveDraft(JSONObject payload,AlertDialog form) {
+        try {
+            if(drafts==null||activeDraftScope.isEmpty())throw new IllegalStateException("请先完成一次工作台登录，才能建立账号隔离的本机草稿。");
+            drafts.add(payload);form.dismiss();Toast.makeText(this,"已保存到本机，尚未提交云端。",Toast.LENGTH_LONG).show();if(data!=null)render();
+        } catch(Exception error){Toast.makeText(this,error.getMessage(),Toast.LENGTH_LONG).show();}
+    }
+    private void showDrafts() {
+        if(draftSheet!=null||workSheet!=null||aiSheet!=null||nutritionSheet!=null||saving||bindingChanging)return;
+        if(drafts==null||activeDraftScope.isEmpty()){Toast.makeText(this,"请先完成一次工作台登录，再使用账号隔离的本机草稿。",Toast.LENGTH_LONG).show();return;}
+        final String scope=activeDraftScope;
+        draftSheet=new NativeDraftSheet(this,mobileApi,baseUrl,drafts,new NativeDraftSheet.Host(){
+            @Override public boolean connected(){return bridgeReady&&data!=null&&scope.equals(activeDraftScope)&&!saving&&!syncing&&!saveOutcomeUnknown&&!bindingChanging;}
+            @Override public void onSaved(){sync();}
+            @Override public void onClosed(){draftSheet=null;}
+        });draftSheet.show();
+    }
+    private void showWork() {
+        if(workSheet!=null||draftSheet!=null||aiSheet!=null||nutritionSheet!=null||saving||syncing||bindingChanging)return;
+        if(!bridgeReady||data==null||activeDraftScope.isEmpty()){showAuth();return;}
+        workSheet=new NativeWorkSheet(this,mobileApi,baseUrl,activeDraftScope,new NativeWorkSheet.Host(){
+            @Override public boolean writesBlocked(){return saveOutcomeUnknown||saving||bindingChanging;}
+            @Override public void onSaved(){sync();}
+            @Override public void onAuthRequired(){showAuth();}
+            @Override public void onClosed(){workSheet=null;}
+        });workSheet.show();
     }
 
     private View scrollForm(LinearLayout form) {
@@ -1204,7 +1355,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sync() {
-        if (syncing || saving) return;
+        if (syncing || saving || (workSheet!=null&&workSheet.isBusy()) || (draftSheet!=null&&draftSheet.isBusy())) return;
         if (!bridgeReady || authWebView == null) {
             showAuth();
             return;
@@ -1235,6 +1386,14 @@ public class MainActivity extends AppCompatActivity {
                     || snapshot.optJSONArray("schedules") == null || snapshot.optJSONObject("summary") == null) {
                     throw new IllegalArgumentException("invalid mobile snapshot");
                 }
+                String accountScope=WorkbenchOperationPolicy.scope(baseUrl,snapshot.getJSONObject("user").optString("email"));
+                if(accountScope.isEmpty())throw new IllegalArgumentException("account missing");
+                if(!accountScope.equals(activeDraftScope)){
+                    if(draftSheet!=null)draftSheet.close();
+                    if(workSheet!=null)workSheet.close();
+                    activeDraftScope=accountScope;drafts=new NativeDraftStore(this,activeDraftScope);
+                }
+                getSharedPreferences("native_workbench",MODE_PRIVATE).edit().putString("active_scope:"+baseUrl,activeDraftScope).apply();
                 data = snapshot;
                 connectionDiagnosticState = "ready";
                 CookieManager.getInstance().flush();
@@ -1290,9 +1449,16 @@ public class MainActivity extends AppCompatActivity {
         Button help = secondaryButton("安装与登录帮助");
         help.setOnClickListener(v -> showInstallHelp());
         box.addView(help);
+        Button features = secondaryButton("全部功能与使用入口");
+        features.setOnClickListener(v -> selectTab("features"));
+        box.addView(features);
         Button update = secondaryButton("检查 App 新版本");
         update.setOnClickListener(v -> showUpdateCheck());
         box.addView(update);
+        if(!activeDraftScope.isEmpty()){
+            Button draftsButton=secondaryButton("查看本机草稿");draftsButton.setOnClickListener(v->showDrafts());box.addView(draftsButton);
+            Button capture=secondaryButton("离线写一条草稿");capture.setOnClickListener(v->showRecordDialog());box.addView(capture);
+        }
         box.addView(diagnosticsButton());
         body.addView(box);
         scroll.addView(body);
@@ -1305,12 +1471,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showNutrition() {
-        if (saving || syncing || bindingChanging || aiSheet != null) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或 AI 页面。", Toast.LENGTH_SHORT).show(); return;
         }
         if (!bridgeReady || data == null) { showAuth(); return; }
         if (nutritionSheet != null) return;
         nutritionSheet = new NativeNutritionSheet(this, mobileApi, baseUrl, new NativeNutritionSheet.Host() {
+            @Override public String accountScope() { return activeDraftScope; }
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || bindingChanging; }
             @Override public void pickPhoto(boolean camera, NativeNutritionPhotoPicker.Callback callback) {
                 nutritionPhotoPicker.pick(camera, callback);
@@ -1323,7 +1490,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showAi() {
-        if (saving || syncing || bindingChanging) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
         if (aiSheet != null || nutritionSheet != null) return;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
@@ -1384,6 +1551,9 @@ public class MainActivity extends AppCompatActivity {
         Button help = secondaryButton("安装与登录帮助");
         help.setOnClickListener(v -> showInstallHelp());
         body.addView(help);
+        Button features = secondaryButton("全部功能与使用入口");
+        features.setOnClickListener(v -> selectTab("features"));
+        body.addView(features);
         Button update = secondaryButton("检查 App 新版本");
         update.setOnClickListener(v -> showUpdateCheck());
         body.addView(update);
@@ -1483,6 +1653,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void bindWorkbench(String origin) {
         bindingChanging = true;
+        if(workSheet!=null)workSheet.close();
+        if(draftSheet!=null)draftSheet.close();
         if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
         bridgeReady = false; mobileApi.close();
@@ -1493,6 +1665,7 @@ public class MainActivity extends AppCompatActivity {
         if (overlay != null) root.removeView(overlay);
         resetScheduleFilters();
         data = null; tab = "home"; baseUrl = origin;
+        activeDraftScope="";drafts=new NativeDraftStore(this,"");
         lastMobileHttpStatus = 0; lastNutritionDiagnostic = "";
         connectionDiagnosticState = "authorization";
         deviceId = "android-" + UUID.randomUUID();
@@ -1610,6 +1783,8 @@ public class MainActivity extends AppCompatActivity {
         if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(view);
     }
 
+    private interface PayloadFactory { JSONObject create(); }
+
     private interface ApiCallback {
         void complete(JSONObject envelope);
     }
@@ -1673,6 +1848,8 @@ public class MainActivity extends AppCompatActivity {
         cancelScheduleFilter();
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
+        if (workSheet != null) workSheet.close();
+        if (draftSheet != null) draftSheet.close();
         if (nutritionSheet != null) nutritionSheet.close();
         if (nutritionPhotoPicker != null) nutritionPhotoPicker.close();
         if (aiSheet != null) aiSheet.close();
@@ -1686,3 +1863,4 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 }
+

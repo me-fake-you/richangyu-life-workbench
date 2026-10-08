@@ -38,6 +38,7 @@ final class NativeNutritionSheet {
         void onAuthRequired();
         void onClosed();
         default void onDiagnosticReport(String report) {}
+        default String accountScope() { return ""; }
     }
     private interface PhotoChoice { void pick(boolean useCamera); }
     private static final String ENDPOINT = "/api/nutrition";
@@ -51,7 +52,7 @@ final class NativeNutritionSheet {
     private AlertDialog dialog, editor, uploadConfirmation, resultDialog, diagnosticDialog;
     private LinearLayout content;
     private TextView status;
-    private Button dateButton, previous, next, refresh, addMeal, addWater, addPhotoMeal, visionCheckButton;
+    private Button dateButton, previous, next, refresh, addMeal, addWater, addPhotoMeal, commonMeals, visionCheckButton;
     private JSONObject snapshot, visionCheckResult;
     private boolean checkingVision;
     private String nutritionReadState = "not-started", visionDiagnosticState = "not-checked";
@@ -113,13 +114,17 @@ final class NativeNutritionSheet {
         scroll.setFillViewport(true); content = column(); scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout actions = new LinearLayout(activity);
-        addMeal = button("\u8bb0\u4e00\u9910", true, () -> showMeal(null));
+        addMeal = button("\u8bb0\u4e00\u9910 / \u62cd\u7167", true, () -> showMeal(null));
         addWater = button("\u559d\u4e00\u676f", false, this::saveWater);
         actions.addView(addMeal, new LinearLayout.LayoutParams(0, -2, 1));
         actions.addView(addWater, new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(actions);
-        addPhotoMeal = button("\u62cd\u7167 / \u76f8\u518c\u8bb0\u9910", false, () -> showMeal(null)); root.addView(addPhotoMeal);
-        refresh = button("\u540c\u6b65\u996e\u98df\u8bb0\u5f55", false, this::load); root.addView(refresh);
+        addPhotoMeal=button("\u62cd\u7167 / \u76f8\u518c\u8bb0\u9910",false,()->showMeal(null));
+        commonMeals=button("\u5e38\u5403\u6a21\u677f",false,this::showCommonMeals);
+        refresh=button("\u540c\u6b65",false,this::load);
+        LinearLayout utility=new LinearLayout(activity);
+        utility.addView(commonMeals,new LinearLayout.LayoutParams(0,-2,1));
+        utility.addView(refresh,new LinearLayout.LayoutParams(0,-2,1));root.addView(utility);
         dialog = new AlertDialog.Builder(activity).setView(root).create();
         dialog.setCancelable(false);
         dialog.setOnKeyListener((d, key, event) -> {
@@ -165,7 +170,7 @@ final class NativeNutritionSheet {
         next.setEnabled(!busy && !day().equals(WorkbenchNutritionPolicy.dayKey(new Date(), TimeZone.getDefault())));
         refresh.setEnabled(!busy);
         boolean allowed = loaded && !busy && !unknown() && !host.writesBlocked();
-        addMeal.setEnabled(allowed); addWater.setEnabled(allowed); addPhotoMeal.setEnabled(allowed);
+        addMeal.setEnabled(allowed); addWater.setEnabled(allowed); addPhotoMeal.setEnabled(allowed); commonMeals.setEnabled(allowed);
         if (visionCheckButton != null) visionCheckButton.setEnabled(loaded && !busy && snapshot != null
             && snapshot.optJSONObject("aiVision") != null && snapshot.optJSONObject("aiVision").optBoolean("configured")
             && "groq".equals(snapshot.optJSONObject("aiVision").optString("provider")));
@@ -253,15 +258,14 @@ final class NativeNutritionSheet {
         diagnostics.addView(label("\u8fde\u63a5\u95ee\u9898\u53cd\u9988", 16, NativeUi.INK));
         diagnostics.addView(label("\u5148\u9884\u89c8\u518d\u590d\u5236\uff0c\u4e0d\u5305\u542b\u8d26\u53f7\u3001\u7f51\u5740\u3001\u7167\u7247\u6216\u8bb0\u5f55\u3002\u590d\u5236\u4e0d\u8054\u7f51\u3001\u4e0d\u4fdd\u5b58\u9910\u98df\u3002", 12, NativeUi.MUTED));
         diagnostics.addView(button("\u590d\u5236\u8bca\u65ad\u4fe1\u606f", false, this::showDiagnostics));
-        content.addView(diagnostics);
         if (snapshot == null) {
+            content.addView(diagnostics);
             LinearLayout empty = card();
             empty.addView(label(loading ? "\u6b63\u5728\u8bfb\u53d6\u996e\u98df\u4e0e\u8425\u517b" : "\u6682\u672a\u8bfb\u53d6\u5230\u996e\u98df\u6570\u636e", 19, NativeUi.INK));
             empty.addView(label("\u9700\u8981\u767b\u5f55\u5230\u6709\u996e\u98df\u63a5\u53e3\u7684\u5de5\u4f5c\u53f0\uff1b\u8fde\u63a5\u5931\u8d25\u4e0d\u4ee3\u8868\u6ca1\u6709\u8bb0\u5f55\u3002", 13, NativeUi.MUTED));
             content.addView(empty); return;
         }
         if (!loaded) content.addView(label("\u4ee5\u4e0b\u662f\u4e0a\u6b21\u8bfb\u53d6\u7684\u6570\u636e\uff1b\u672c\u6b21\u5c1a\u672a\u540c\u6b65\u6210\u529f\u3002", 12, NativeUi.ROSE));
-        renderVisionStatus();
         double calories = 0, protein = 0, carbs = 0, fat = 0, glasses = 0;
         JSONArray meals = snapshot.optJSONArray("meals"), water = snapshot.optJSONArray("water");
         for (int i = 0; i < meals.length(); i++) {
@@ -331,13 +335,17 @@ final class NativeNutritionSheet {
             edit.setEnabled(loaded && !isBusy() && !unknown() && !host.writesBlocked());
             remove.setEnabled(edit.isEnabled());
             row.addView(edit, new LinearLayout.LayoutParams(0, -2, 1));
-            row.addView(remove, new LinearLayout.LayoutParams(0, -2, 1)); mealCard.addView(row); content.addView(mealCard);
+            row.addView(remove, new LinearLayout.LayoutParams(0, -2, 1)); mealCard.addView(row);
+            Button reuse=button("\u518d\u5403\u4e00\u6b21\uff08\u5148\u6838\u5bf9\u4efd\u91cf\uff09",false,()->showMeal(meal,true));
+            reuse.setEnabled(edit.isEnabled());mealCard.addView(reuse);content.addView(mealCard);
         }
         if (count == 0) content.addView(label("\u8be5\u65e5\u671f\u672c\u6b21\u672a\u8fd4\u56de\u9910\u98df\u8bb0\u5f55\u3002\u53ef\u8bb0\u4e00\u9910\uff1b\u66f4\u65e9\u8bb0\u5f55\u53ef\u80fd\u4e0d\u5728\u63a5\u53e3\u52a0\u8f7d\u8303\u56f4\u3002", 13, NativeUi.MUTED));
         LinearLayout help = card();
         help.addView(label("\u5173\u4e8e\u70ed\u91cf\u8bb0\u5f55", 15, NativeUi.INK));
         help.addView(label("\u70ed\u91cf\u548c\u8425\u517b\u7d20\u4ec5\u4f9b\u65e5\u5e38\u8bb0\u5f55\uff0c\u4f30\u7b97\u5e76\u975e\u7cbe\u786e\u6d4b\u91cf\u3002\u76ee\u6807\u7531\u4f60\u81ea\u884c\u586b\u5199\uff0c\u4e0d\u662f\u4e2a\u6027\u5316\u8425\u517b\u6216\u533b\u7597\u5efa\u8bae\u3002\u5386\u53f2\u8303\u56f4\u4ee5\u5de5\u4f5c\u53f0\u63a5\u53e3\u8fd4\u56de\u7684\u6570\u636e\u4e3a\u51c6\u3002\n\u652f\u6301\u62cd\u7167\u6216\u76f8\u518c\u8bb0\u9910\uff1b\u8bc6\u522b\u4f9d\u8d56\u5de5\u4f5c\u53f0\u7684\u56fe\u7247 AI \u914d\u7f6e\u3002\u672a\u83b7\u5f97\u8bc6\u522b\u65f6\u4f1a\u660e\u786e\u6807\u6ce8\u6587\u5b57\u4f30\u7b97\uff0c\u8bf7\u6838\u5bf9\u5e76\u4fee\u6b63\u3002", 12, NativeUi.MUTED));
         content.addView(help);
+        renderVisionStatus();
+        content.addView(diagnostics);
     }
     private EditText input(LinearLayout form, String title, String value, boolean numeric) {
         form.addView(label(title, 13, NativeUi.MUTED));
@@ -354,9 +362,10 @@ final class NativeNutritionSheet {
         form.setPadding(dp(16), dp(8), dp(16), dp(12));
         ScrollView scroll = new ScrollView(activity); scroll.addView(form); return scroll;
     }
-    private void showMeal(JSONObject meal) {
+    private void showMeal(JSONObject meal) { showMeal(meal,false); }
+    private void showMeal(JSONObject meal,boolean reuse) {
         if (!canWrite()) return;
-        boolean correcting = meal != null;
+        boolean correcting = meal != null && !reuse;
         LinearLayout form = column();
         NativeNutritionPhotoPicker.Photo[] photo = {null};
         ImageView preview = new ImageView(activity);
@@ -380,9 +389,9 @@ final class NativeNutritionSheet {
         }
         Spinner type = new Spinner(activity);
         type.setAdapter(new ArrayAdapter<>(activity, android.R.layout.simple_spinner_dropdown_item, MEAL_TYPES));
-        if (correcting) for (int i=0;i<MEAL_TYPES.length;i++) if(MEAL_TYPES[i].equals(meal.optString("mealType"))) type.setSelection(i);
+        if (meal != null) for (int i=0;i<MEAL_TYPES.length;i++) if(MEAL_TYPES[i].equals(meal.optString("mealType"))) type.setSelection(i);
         form.addView(label("\u9910\u6b21", 13, NativeUi.MUTED)); form.addView(type);
-        EditText note = input(form, "\u5403\u4e86\u4ec0\u4e48\u3001\u4efd\u91cf\u591a\u5c11\uff08\u7167\u7247\u8bc6\u522b\u4e0d\u53ef\u7528\u65f6\u636e\u6b64\u4f30\u7b97\uff09", correcting ? meal.optString("note") : "", false);
+        EditText note = input(form, "\u5403\u4e86\u4ec0\u4e48\u3001\u4efd\u91cf\u591a\u5c11\uff08\u7167\u7247\u8bc6\u522b\u4e0d\u53ef\u7528\u65f6\u636e\u6b64\u4f30\u7b97\uff09", meal != null ? meal.optString("note") : "", false);
         Calendar eaten = (Calendar)selected.clone();
         if (correcting) eaten.setTime(WorkbenchNutritionPolicy.instant(meal.optString("eatenAt")));
         Button time = button("", false, () -> new TimePickerDialog(activity, (view, hour, minute) -> {
@@ -396,14 +405,24 @@ final class NativeNutritionSheet {
         manual.setText(correcting ? "\u624b\u52a8\u4fee\u6b63\u8425\u517b\u503c" : "\u624b\u52a8\u586b\u5199\u8425\u517b\u503c\uff08\u4e0d\u52fe\u9009\uff1a\u7167\u7247\u4f18\u5148\uff0c\u5426\u5219\u6587\u5b57\u4f30\u7b97\uff09");
         manual.setChecked(true); manual.setEnabled(!correcting); form.addView(manual);
         LinearLayout numbers = column();
-        EditText calories = input(numbers, "\u70ed\u91cf\uff08\u5343\u5361\uff09", correcting ? amount(metric(meal,"estimatedCalories")) : "", true);
-        EditText protein = input(numbers, "\u86cb\u767d\u8d28\uff08g\uff09", correcting ? amount(metric(meal,"proteinG")) : "", true);
-        EditText carbs = input(numbers, "\u78b3\u6c34\uff08g\uff09", correcting ? amount(metric(meal,"carbsG")) : "", true);
-        EditText fat = input(numbers, "\u8102\u80aa\uff08g\uff09", correcting ? amount(metric(meal,"fatG")) : "", true);
+        EditText calories = input(numbers, "\u70ed\u91cf\uff08\u5343\u5361\uff09", meal != null ? amount(metric(meal,"estimatedCalories")) : "", true);
+        EditText protein = input(numbers, "\u86cb\u767d\u8d28\uff08g\uff09", meal != null ? amount(metric(meal,"proteinG")) : "", true);
+        EditText carbs = input(numbers, "\u78b3\u6c34\uff08g\uff09", meal != null ? amount(metric(meal,"carbsG")) : "", true);
+        EditText fat = input(numbers, "\u8102\u80aa\uff08g\uff09", meal != null ? amount(metric(meal,"fatG")) : "", true);
         numbers.addView(label("\u672a\u77e5\u8425\u517b\u7d20\u53ef\u7559\u7a7a\uff0c\u4f1a\u6309 0 \u4fdd\u5b58\uff0c\u4e0d\u4ee3\u8868\u5b9e\u9645\u4e3a 0\u3002\u7167\u7247\u548c\u6587\u5b57\u7ed3\u679c\u90fd\u53ea\u662f\u4f30\u7b97\uff1b\u4fdd\u5b58\u540e\u8bf7\u5728\u5217\u8868\u4e2d\u6838\u5bf9\u3001\u4fee\u6b63\u3002",11,NativeUi.MUTED));
+        EditText factor=input(numbers,"\u4efd\u91cf\u500d\u6570\uff08\u4f8b\u5982\u534a\u4efd 0.5\uff09","1",true);
+        numbers.addView(button("\u6309\u4efd\u91cf\u8c03\u6574\u8425\u517b\u503c",false,()->{
+            try{
+                double scale=WorkbenchNutritionPolicy.number(factor.getText().toString(),0.05,20,false);
+                EditText[] fields={calories,protein,carbs,fat};double[] next=new double[fields.length];
+                for(int i=0;i<fields.length;i++)next[i]=WorkbenchNutritionPolicy.scaledNumber(WorkbenchNutritionPolicy.number(fields[i].getText().toString(),0,100000,i>0),scale);
+                for(int i=0;i<fields.length;i++)fields[i].setText(amount(next[i]));
+                factor.setText("1");
+            }catch(Exception ignored){factor.setError("\u5148\u586b\u5199\u6709\u6548\u8425\u517b\u503c\u548c 0.05 \u81f3 20 \u500d\u4efd\u91cf");}
+        }));
         form.addView(numbers); manual.setOnCheckedChangeListener((v,checked)->numbers.setVisibility(checked?android.view.View.VISIBLE:android.view.View.GONE));
         editor = new AlertDialog.Builder(activity).setTitle(correcting?"\u4fee\u6b63\u8fd9\u9910\u8425\u517b":"\u8bb0\u5f55\u4e00\u9910")
-            .setView(formScroll(form)).setNegativeButton("\u53d6\u6d88",null).setPositiveButton("\u4fdd\u5b58",null).create();
+            .setView(formScroll(form)).setNegativeButton("\u53d6\u6d88",null).setNeutralButton("\u5b58\u4e3a\u5e38\u5403",null).setPositiveButton("\u4fdd\u5b58",null).create();
         final AlertDialog current = editor;
         current.setOnDismissListener(d -> {
             preview.setImageDrawable(null); photo[0] = null;
@@ -450,7 +469,19 @@ final class NativeNutritionSheet {
             photoStatus.setText("\u7167\u7247\u5df2\u79fb\u9664\uff1b\u5c1a\u672a\u4e0a\u4f20\u3002");
             current.getButton(AlertDialog.BUTTON_POSITIVE).setText("\u4fdd\u5b58");
         });
-        current.setOnShowListener(d -> current.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        current.setOnShowListener(d -> {
+            current.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
+                if(!manual.isChecked()){notice("\u8bf7\u5148\u6838\u5bf9\u5e76\u624b\u586b\u8425\u517b\u503c\uff0c\u518d\u4fdd\u5b58\u6a21\u677f");return;}
+                try{
+                    JSONObject template=new JSONObject().put("note",note.getText().toString().trim()).put("mealType",type.getSelectedItem().toString())
+                        .put("estimatedCalories",WorkbenchNutritionPolicy.number(calories.getText().toString(),Double.MIN_NORMAL,100000,false))
+                        .put("proteinG",WorkbenchNutritionPolicy.number(protein.getText().toString(),0,100000,true))
+                        .put("carbsG",WorkbenchNutritionPolicy.number(carbs.getText().toString(),0,100000,true))
+                        .put("fatG",WorkbenchNutritionPolicy.number(fat.getText().toString(),0,100000,true));
+                    saveCommonMeal(template);
+                }catch(Exception ignored){notice("\u8bf7\u586b\u5199\u9910\u98df\u540d\u79f0\u4e0e\u6709\u6548\u8425\u517b\u503c");}
+            });
+            current.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (!canWrite()) return;
             String description = note.getText().toString().trim();
             if(description.isEmpty()){note.setError("\u8bf7\u8865\u5145\u9910\u98df\u548c\u4efd\u91cf\uff0c\u907f\u514d\u56fe\u7247\u8bc6\u522b\u4e0d\u53ef\u7528\u65f6\u65e0\u6cd5\u4f30\u7b97");return;}
@@ -482,8 +513,29 @@ final class NativeNutritionSheet {
                     uploadConfirmation.show();
                 }
             }catch(Exception ignored){calories.setError(correcting?"\u8bf7\u8f93\u5165\u6709\u6548\u975e\u8d1f\u6570\u5b57":"\u624b\u52a8\u70ed\u91cf\u9700\u5927\u4e8e 0\uff0c\u8425\u517b\u503c\u9700\u4e3a\u6709\u6548\u975e\u8d1f\u6570\u5b57");}
-        })); current.show();
+        }); }); current.show();
     }
+
+    private void saveCommonMeal(JSONObject template) throws Exception {
+        String scope=host.accountScope();if(scope.isEmpty()||template.optString("note").isEmpty())throw new IllegalArgumentException();
+        JSONArray old=new JSONArray(preferences.getString("meal_templates:"+scope,"[]")),next=new JSONArray();
+        for(int i=Math.max(0,old.length()-19);i<old.length();i++)next.put(old.getJSONObject(i));
+        next.put(template);
+        if(!preferences.edit().putString("meal_templates:"+scope,next.toString()).commit())throw new IllegalStateException();
+        notice("\u5e38\u5403\u6a21\u677f\u5df2\u5b58\u5728\u672c\u673a\uff0c\u5c1a\u672a\u4fdd\u5b58\u4e00\u9910\u6216\u4e0a\u4f20\u7167\u7247");
+    }
+    private void showCommonMeals() {
+        if(!canWrite())return;
+        try{
+            JSONArray rows=new JSONArray(preferences.getString("meal_templates:"+host.accountScope(),"[]"));
+            if(rows.length()==0){notice("\u5728\u8bb0\u4e00\u9910\u65f6\u586b\u597d\u8425\u517b\u503c\uff0c\u70b9\u201c\u5b58\u4e3a\u5e38\u5403\u201d");return;}
+            String[] names=new String[rows.length()];
+            for(int i=0;i<names.length;i++)names[i]=rows.getJSONObject(i).optString("note")+" · "+amount(rows.getJSONObject(i).optDouble("estimatedCalories"))+" kcal";
+            new AlertDialog.Builder(activity).setTitle("\u5e38\u5403\u6a21\u677f\uff08\u4ec5\u672c\u673a\uff09").setItems(names,(d,i)->{try{showMeal(rows.getJSONObject(i),true);}catch(Exception ignored){notice("\u6a21\u677f\u65e0\u6cd5\u8bfb\u53d6");}})
+                .setNegativeButton("\u53d6\u6d88",null).show();
+        }catch(Exception ignored){notice("\u672c\u673a\u6a21\u677f\u8bfb\u53d6\u5931\u8d25\uff0c\u672a\u8986\u76d6\u539f\u6570\u636e");}
+    }
+
     private void showTargets() {
         if (!canWrite()) return;
         LinearLayout form = column(); JSONObject settings=snapshot.optJSONObject("settings");

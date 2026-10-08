@@ -1,7 +1,10 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { ensureAdvancedSchema, materializeScheduleInstances } from "../../../lib/advanced-store";
 import { applyPlan, calendarChoices, makePlanPreview, selectedScheduleRows } from "../../../lib/assistant-plan";
-import { generateGroqText, groqConfigured, GroqError, groqModel } from "../../../lib/groq-ai";
+import { generateGroqText, groqConfigured, GroqError, groqModel, signAssistantDraft, verifyAssistantDraft } from "../../../lib/groq-ai";
+import { ensureFinanceSchema } from "../../../lib/finance-store";
+import { issueAssistantUndo, undoAssistantChange, AssistantUndoError } from "../../../lib/assistant-undo.mjs";
+import { getLifeBindings } from "../../../lib/life-store";
 import { applyCapture, assertCalendarDraft, converseAssistant, prepareCalendarRequest } from "../../../lib/assistant-capture-guard";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +20,18 @@ function response(value: unknown, status = 200, retryAfter = 0) {
 }
 
 function failure(error: unknown) {
+  if (error instanceof AssistantUndoError) return response({ error: error.message }, error.status);
   if (error instanceof GroqError) return response({ error: error.message, retryAfter: error.retryAfter }, error.status, error.retryAfter);
   console.error("Workbench assistant request failed", error instanceof Error ? error.name : "unknown");
   return response({ error: "AI 助手暂时无法读取或保存数据。输入已保留，请稍后重试。" }, 503);
+}
+
+async function appliedResponse(result: { saved: number; alreadyApplied: boolean }, payload: string, subject: string, capture: boolean) {
+  try {
+    const undo = await issueAssistantUndo(getLifeBindings().DB, payload, subject, capture, signAssistantDraft);
+    if (undo.alreadyUndone) return response({ error: "这次操作已经撤销，请重新生成草稿。" }, 409);
+    return response({ ...result, undo });
+  } catch { return response({ ...result, undo: { unavailable: "undo_receipt_unavailable" } }); }
 }
 
 export async function GET(request: Request) {
@@ -47,13 +59,19 @@ export async function POST(request: Request) {
     if (!body || typeof body !== "object" || Array.isArray(body)) return response({ error: "请求格式不正确。" }, 400);
     const subject = request.headers.get("oai-authenticated-user-id") || user.email;
     await ensureAdvancedSchema();
+    if (body.action === "undo") {
+      if (body.confirmed !== true) return response({ error: "需要确认撤销。" }, 400);
+      await ensureFinanceSchema();
+      return response(await undoAssistantChange(getLifeBindings().DB, clean(body.payload, 46000),
+        clean(body.signature, 64), subject, verifyAssistantDraft));
+    }
     if (body.action === "capture.apply") {
       if (body.confirmed !== true) return response({ error: "请先核对识别结果，再点击确认添加。" }, 400);
-      return response(await applyCapture(clean(body.payload, 46000), clean(body.signature, 64), subject, body.allowFinancial === true));
+      return appliedResponse(await applyCapture(clean(body.payload, 46000), clean(body.signature, 64), subject, body.allowFinancial === true), clean(body.payload, 46000), subject, true);
     }
     if (body.action === "apply") {
       if (body.confirmed !== true) return response({ error: "请先核对草稿并点击确认保存。" }, 400);
-      return response(await applyPlan(clean(body.payload, 40000), clean(body.signature, 64), subject));
+      return appliedResponse(await applyPlan(clean(body.payload, 40000), clean(body.signature, 64), subject), clean(body.payload, 40000), subject, false);
     }
     if (body.action !== "chat" && body.action !== "plan") return response({ error: "不支持这个操作。" }, 400);
     const question = clean(body.prompt, 800);

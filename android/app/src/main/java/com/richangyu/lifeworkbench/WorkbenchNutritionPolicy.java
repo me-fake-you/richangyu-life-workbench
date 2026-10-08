@@ -37,6 +37,11 @@ final class WorkbenchNutritionPolicy {
         }
         return parsed;
     }
+    static double scaledNumber(double value,double factor) {
+        double next=value*factor;
+        if(Double.isNaN(next)||Double.isInfinite(next)||value<0||factor<0.05||factor>20||next>100000)throw new IllegalArgumentException("invalid portion");
+        return Math.round(next*10)/10.0;
+    }
     static boolean validMetric(double value) {
         return Double.isFinite(value) && value >= 0 && value <= 1000000;
     }

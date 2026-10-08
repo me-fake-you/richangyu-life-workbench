@@ -72,4 +72,13 @@ public class WorkbenchNutritionPolicyTest {
         assertFalse(WorkbenchNutritionPolicy.validMetric(Double.POSITIVE_INFINITY));
         assertFalse(WorkbenchNutritionPolicy.validMetric(-1));
     }
+
+    @Test public void portionsScaleTogetherAndRejectUnsafeFactors() {
+        assertEquals(150,WorkbenchNutritionPolicy.scaledNumber(100,1.5),0.001);
+        assertEquals(2.3,WorkbenchNutritionPolicy.scaledNumber(1.5,1.5),0.001);
+        for(double factor:new double[]{0,0.01,21,Double.NaN,Double.POSITIVE_INFINITY}) {
+            try {WorkbenchNutritionPolicy.scaledNumber(100,factor);fail();}
+            catch(IllegalArgumentException expected){}
+        }
+    }
 }

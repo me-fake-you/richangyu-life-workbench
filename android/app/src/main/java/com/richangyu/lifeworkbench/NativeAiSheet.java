@@ -35,6 +35,8 @@ final class NativeAiSheet {
     private JSONArray history = new JSONArray();
     private String pendingSource = "", previousDraft = "";
     private JSONObject draft;
+    private JSONObject undoReceipt;
+    private Button undo;
     private AlertDialog dialog;
     private LinearLayout conversation, previewBox, settingsBody;
     private Button settingsToggle;
@@ -257,12 +259,13 @@ final class NativeAiSheet {
             toast("\u8fd9\u6b21\u8f93\u5165\u6216\u5bf9\u8bdd\u4e0a\u4e0b\u6587\u5305\u542b\u91d1\u989d / \u6536\u5165\u4fe1\u606f\uff0c\u8bf7\u5148\u52fe\u9009\u672c\u6b21\u5904\u7406\u540c\u610f\u3002"); return;
         }
         JSONObject payload = new JSONObject();
-        put(payload, "action", planning ? "plan" : "chat"); put(payload, "question", prompt);
+        put(payload, "action", planning ? "plan" : "chat"); put(payload, "prompt", prompt);
         put(payload, "days", days); put(payload, "includeCalendar", calendar.isChecked());
         put(payload, "scheduleIds", calendar.isChecked() ? new JSONArray(selected) : new JSONArray());
         put(payload, "allowFinancial", allowed);
         if (planning) put(payload, "previousDraft", previousDraft);
         else { put(payload, "history", history); put(payload, "captureSource", pendingSource); }
+        undoReceipt=null;undo=null;
         draft = null; saved = false; previewBox.removeAllViews(); previewBox.setVisibility(View.GONE); confirm = null; discard = null; expiry = null;
         setBusy(true); status.setText("AI \u6b63\u5728\u6574\u7406\uff0c\u6ca1\u6709\u4fdd\u5b58\u4efb\u4f55\u6570\u636e\u3002\u8bf7\u7a0d\u7b49\u2026");
         finance.setChecked(false);
@@ -411,10 +414,38 @@ final class NativeAiSheet {
                     }
                     saved = true; pendingSource = ""; finance.setChecked(false);
                     status.setText(result.optBoolean("alreadyApplied") ? "\u8fd9\u4efd\u8349\u7a3f\u5df2\u4fdd\u5b58\uff0c\u6ca1\u6709\u91cd\u590d\u6dfb\u52a0\u3002" : "\u5df2\u4fdd\u5b58\u5230\u5de5\u4f5c\u53f0\uff0c\u6b63\u5728\u540c\u6b65\u3002");
-                    updateControls(); host.onSaved();
+                    showSavedReceipt(result); updateControls(); host.onSaved();
                 });
             }).show();
     }
+    private void showSavedReceipt(JSONObject result) {
+        previewBox.removeAllViews(); confirm=null;discard=null;expiry=null;undo=null;
+        previewBox.addView(NativeUi.badge(activity,"\u5df2\u4fdd\u5b58\u5230\u5de5\u4f5c\u53f0",NativeUi.MINT,GREEN));
+        previewBox.addView(label(result.optString("destination",planDraft?"\u65e5\u7a0b\u5b89\u6392":"\u751f\u6d3b\u8bb0\u5f55"),19,true));
+        undoReceipt=result.optJSONObject("undo");
+        if(undoReceipt!=null&&!undoReceipt.optString("payload").isEmpty()&&!undoReceipt.optString("signature").isEmpty()){
+            previewBox.addView(label("\u53ef\u5728 30 \u5206\u949f\u5185\u786e\u8ba4\u64a4\u9500\uff1b\u82e5\u65e5\u7a0b\u6216\u8bb0\u5f55\u5df2\u88ab\u6539\u52a8\uff0c\u670d\u52a1\u5668\u4f1a\u62d2\u7edd\u8986\u76d6\u3002",13,false));
+            undo=button("\u64a4\u9500\u672c\u6b21 AI \u64cd\u4f5c",false);undo.setOnClickListener(v->confirmUndo());previewBox.addView(undo);
+        }else previewBox.addView(label("\u6b64\u64cd\u4f5c\u4e0d\u63d0\u4f9b\u5feb\u6377\u64a4\u9500\u3002\u91d1\u989d\u8bb0\u5f55\u8bf7\u5728\u517c\u804c\u4e0e\u8d22\u52a1\u4e2d\u6838\u5bf9\uff0c\u4e0d\u4f1a\u81ea\u52a8\u5220\u9664\u6536\u6b3e\u3002",13,false));
+    }
+    private void confirmUndo() {
+        if(closed||busy||undoReceipt==null||undoReceipt.optLong("expiresAt")<=System.currentTimeMillis()||host.writesBlocked())return;
+        new AlertDialog.Builder(activity).setTitle("\u786e\u8ba4\u64a4\u9500\u8fd9\u6b21\u64cd\u4f5c\uff1f")
+            .setMessage("\u65b0\u5efa\u65e5\u7a0b\u4f1a\u6807\u8bb0\u53d6\u6d88\uff0c\u4fee\u6539\u65e5\u7a0b\u4f1a\u5c1d\u8bd5\u6062\u590d\u539f\u503c\uff0c\u65b0\u5efa\u751f\u6d3b\u8bb0\u5f55\u4f1a\u79fb\u5165\u56de\u6536\u72b6\u6001\u3002\u4e0d\u4f1a\u8986\u76d6\u540e\u6765\u7684\u4fee\u6539\u6216\u5df2\u6709\u5de5\u65f6\uff0c\u4e0d\u4f1a\u64a4\u9500\u771f\u5b9e\u6536\u6b3e\u3002")
+            .setNegativeButton("\u4fdd\u7559",null).setPositiveButton("\u786e\u8ba4\u64a4\u9500",(d,w)->{
+                if(closed||busy||host.writesBlocked()||undoReceipt.optLong("expiresAt")<=System.currentTimeMillis())return;
+                JSONObject p=new JSONObject();put(p,"action","undo");put(p,"confirmed",true);put(p,"payload",undoReceipt.optString("payload"));put(p,"signature",undoReceipt.optString("signature"));
+                writing=true;setBusy(true);status.setText("\u6b63\u5728\u6838\u5bf9\u5e76\u64a4\u9500\u2026");
+                bridge.request("/api/assistant",p,envelope->{
+                    if(closed)return;JSONObject result=response(envelope,true);writing=false;setBusy(false);
+                    if(result==null)return;
+                    if(result.optInt("undone")<=0){unknownSave();return;}
+                    undoReceipt=null;if(undo!=null)undo.setEnabled(false);
+                    status.setText("\u5df2\u64a4\u9500\u672c\u6b21\u64cd\u4f5c\uff0c\u6b63\u5728\u540c\u6b65\u3002");host.onSaved();
+                });
+            }).show();
+    }
+
     private JSONObject response(JSONObject envelope, boolean saveRequest) {
         int code = envelope.optInt("status", 0);
         String type = envelope.optString("type").toLowerCase(java.util.Locale.ROOT);
@@ -451,6 +482,7 @@ final class NativeAiSheet {
     }
     private void updateControls() {
         if (send == null || closed) return;
+        if(undo!=null)undo.setEnabled(!busy&&undoReceipt!=null&&undoReceipt.optLong("expiresAt")>System.currentTimeMillis()&&!host.writesBlocked());
         boolean pending = draftPending();
         boolean cooling = System.currentTimeMillis() < cooldownUntil;
         send.setEnabled(!busy && ready && !pending && !cooling);

@@ -9,6 +9,8 @@ import {
   renameOwnWorkspace,
 } from "./workspace-service.mjs";
 
+import { readContentInput, listOwnContent, changeOwnContent } from "./content-service.mjs";
+
 const capabilities = Object.freeze({
   accountWorkspace: true,
   records: false,
@@ -42,7 +44,7 @@ export async function handleFoundationRequest(request, env = {}) {
     });
   }
   // No fallthrough to the existing single-workspace application.
-  if (url.pathname !== "/api/account/workspace") {
+  if (!["/api/account/workspace", "/api/content"].includes(url.pathname)) {
     return json({ error: "endpoint_not_available" }, 404);
   }
   if (env.MULTIUSER_FOUNDATION_ENABLED !== "true" ||
@@ -51,8 +53,11 @@ export async function handleFoundationRequest(request, env = {}) {
   }
   const subject = authenticatedSubject(request.headers);
   if (!subject) return json({ error: "sign_in_required" }, 401);
-  if (!["GET", "POST", "PATCH"].includes(request.method)) {
-    return json({ error: "method_not_allowed" }, 405, { allow: "GET, POST, PATCH" });
+  const content = url.pathname === "/api/content";
+  if (content && env.MULTIUSER_CONTENT_ENABLED !== "true") return json({ error: "content_foundation_not_enabled" }, 503);
+  const methods = content ? ["GET", "POST"] : ["GET", "POST", "PATCH"];
+  if (!methods.includes(request.method)) {
+    return json({ error: "method_not_allowed" }, 405, { allow: methods.join(", ") });
   }
   if (url.search) return json({ error: "workspace_selectors_rejected" }, 400);
   const database = env.MULTIUSER_DB;
@@ -61,6 +66,11 @@ export async function handleFoundationRequest(request, env = {}) {
   }
 
   try {
+    if (content) {
+      if (request.method === "GET") return json({ ...await listOwnContent(database, subject), stage: "isolated-content-foundation", fullWorkbenchReady: false });
+      requireSameOrigin(request);
+      return json(await changeOwnContent(database, subject, await readContentInput(request)));
+    }
     let input;
     if (request.method !== "GET") {
       requireSameOrigin(request);
