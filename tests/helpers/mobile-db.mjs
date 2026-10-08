@@ -42,7 +42,8 @@ export function database(legacy = true) {
         const results = statements.map(item => {
           if (item.values.length > 100) throw new Error("D1 binding limit exceeded");
           const prepared = sqlite.prepare(item.sql);
-          if (prepared.columns().length) return { success: true, results: prepared.all(...item.values).map(row => ({ ...row })) };
+          // Fixtures use plain SELECT reads and WITH ... INSERT transaction guards.
+          if (/^\s*SELECT\b/i.test(item.sql)) return { success: true, results: prepared.all(...item.values).map(row => ({ ...row })) };
           const result = prepared.run(...item.values);
           return { success: true, results: [], meta: { changes: Number(result.changes) } };
         });
