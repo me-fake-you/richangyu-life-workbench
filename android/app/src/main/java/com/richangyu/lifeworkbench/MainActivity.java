@@ -69,6 +69,8 @@ import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private String baseUrl = "";
+    private NativeSyncStatusStore syncReceipts;
+    private String lastWriteRejectedScope = "";
     private static final int REMINDER_PERMISSION_REQUEST = 4100;
     private NativeScheduleReminders reminders;
     private AlertDialog reminderDialog;
@@ -153,6 +155,7 @@ public class MainActivity extends AppCompatActivity {
         saveOutcomeUnknown = prefs.getBoolean("save_outcome_unknown", false);
         activeDraftScope = prefs.getString("active_scope:" + baseUrl, "");
         drafts = new NativeDraftStore(this, activeDraftScope);
+        syncReceipts = new NativeSyncStatusStore(this);
         reminders = new NativeScheduleReminders(this);
         try { reminders.switchScope(activeDraftScope); reminders.restore(); }
         catch (RuntimeException ignored) { /* A fresh authenticated sync can reconcile again. */ }
@@ -305,7 +308,7 @@ public class MainActivity extends AppCompatActivity {
             View item = nav.getChildAt(i);
             NativeUi.selectNav(item, tab.equals(item.getTag()));
         }
-        if (data == null && !"features".equals(tab) && !"home".equals(tab)) {
+        if (data == null && !"features".equals(tab) && !"home".equals(tab) && !"sync".equals(tab)) {
             showError("尚未连接工作台。连接成功后会在这里显示原生打卡、记录和日程页面。");
             return;
         }
@@ -318,7 +321,8 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout body = page();
         scroll.addView(body);
         content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-        if ("features".equals(tab)) renderFeatures(body);
+        if ("sync".equals(tab)) renderSyncCenter(body);
+        else if ("features".equals(tab)) renderFeatures(body);
         else if ("records".equals(tab)) renderRecords(body);
         else if ("schedule".equals(tab)) renderSchedules(body);
         else if ("me".equals(tab)) renderMe(body);
@@ -346,6 +350,7 @@ public class MainActivity extends AppCompatActivity {
             body.addView(account);
         }
         addHomeConnectionState(body);
+        addHomeSyncState(body);
         addQuickActions(body);
         if (data == null) {
             TextView hint = text("连接并读取成功后，这里才会显示你的今日安排与记录。未读取不代表云端没有数据。", 12, MUTED);
@@ -358,7 +363,7 @@ public class MainActivity extends AppCompatActivity {
         JSONArray records = data.optJSONArray("records");
         int todayCount = WorkbenchRecordPolicy.select(recordEntries(records),
             WorkbenchRecordPolicy.TODAY, "", now).size();
-        TextView summary = text("今日记录 " + todayCount + " · 本机草稿 " + draftCount(), 13, GREEN);
+        TextView summary = text("今日记录 " + todayCount + " · 本机草稿 " + draftCountLabel(), 13, GREEN);
         summary.setPadding(0, dp(4), 0, dp(4));
         body.addView(summary);
         body.addView(text("数量与安排仅统计本次读取到手机的内容，不代表全部云端数据。", 11, MUTED));
@@ -392,6 +397,171 @@ public class MainActivity extends AppCompatActivity {
             "本机草稿与云端记录会明确分开。", "写一条记录", () -> openHomeAction("record-create"));
         else for (int i = 0; i < Math.min(3, recent.size()); i++)
             addRecord(body, records.optJSONObject(recent.get(i).sourceIndex));
+    }
+
+
+    private WorkbenchSyncPolicy.Summary draftSummary() {
+        if (!WorkbenchSyncPolicy.validScope(activeDraftScope) || drafts == null || !activeDraftScope.equals(drafts.scope())) return null;
+        try {
+            JSONArray rows = drafts.list();
+            List<String> states = new ArrayList<>();
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject row = rows.getJSONObject(i), request = row.getJSONObject("request");
+                if (request.optString("requestId").isEmpty() || request.optJSONObject("payload") == null)
+                    throw new IllegalArgumentException("invalid local draft");
+                states.add(row.optString("state"));
+            }
+            return WorkbenchSyncPolicy.summarize(states);
+        } catch (Exception ignored) { return null; }
+    }
+
+    private Button syncCenterButton() {
+        Button button = secondaryButton("同步状态与本机草稿");
+        button.setOnClickListener(v -> selectTab("sync"));
+        return button;
+    }
+
+    private void addHomeSyncState(LinearLayout body) {
+        WorkbenchSyncPolicy.Summary count = draftSummary();
+        String label = !WorkbenchSyncPolicy.validScope(activeDraftScope) ? "登录一次后，可使用账号隔离的本机草稿。"
+            : count == null ? "本机草稿读取失败，不能当作 0 条。"
+            : "仅本机 " + count.local + " 条，待核对 " + (count.uncertain + count.rejected) + " 条"
+                + (count.confirmed > 0 ? "，回执已确认但待清理 " + count.confirmed + " 条" : "");
+        TextView state = text(label, 12, saveOutcomeUnknown || count == null && !activeDraftScope.isEmpty() ? ROSE : MUTED);
+        state.setPadding(0, 0, 0, dp(4));
+        body.addView(state);
+        body.addView(syncCenterButton());
+    }
+
+    private String syncReadLabel(WorkbenchSyncPolicy.ReadState state) {
+        switch (state) {
+            case UNBOUND: return "尚未绑定工作台";
+            case READING: return "正在读取云端";
+            case AUTH_REQUIRED: return "需要登录 / 重新连接";
+            case UNREAD: return "尚未成功读取";
+            case STALE: return "当前显示上次读取内容";
+            default: return "本次云端读取成功";
+        }
+    }
+
+    private String syncTime(long timestamp) {
+        SimpleDateFormat format = new SimpleDateFormat("M月d日 HH:mm", Locale.CHINA);
+        format.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        return format.format(new Date(timestamp)) + "（北京时间，本机记录时间）";
+    }
+
+    private void syncLine(LinearLayout parent, String label, String value, int color) {
+        TextView title = text(label, 12, MUTED);
+        title.setPadding(0, dp(10), 0, dp(3));
+        parent.addView(title);
+        parent.addView(text(value, 16, color));
+    }
+
+    private void renderSyncCenter(LinearLayout body) {
+        TextView title = text("同步状态与本机草稿", 25, INK);
+        title.setTypeface(NativeUi.DISPLAY);
+        title.setPadding(0, 0, 0, dp(8));
+        body.addView(title);
+        body.addView(text("读取、保存回执、本机草稿是三件不同的事。刷新不会自动提交草稿。", 13, MUTED));
+
+        WorkbenchSyncPolicy.ReadState state = WorkbenchSyncPolicy.readState(!baseUrl.isEmpty(), syncing,
+            bridgeReady, data != null, homeReadSucceeded);
+        LinearLayout read = card();
+        syncLine(read, "云端读取", syncReadLabel(state), state == WorkbenchSyncPolicy.ReadState.READY ? GREEN : ROSE);
+        syncLine(read, "本次启动上次成功读取", lastHomeReadAt > 0 ? syncTime(lastHomeReadAt) : "还没有记录到成功读取", INK);
+        read.addView(text("读取成功只表示收到当前账号的一次数据快照，不表示所有内容已同步。"
+            + "云端正文未持久化到手机，关闭 App 后仍需重新读取。", 12, MUTED));
+        if (!homeConnectionMessage.isEmpty()) read.addView(text(homeConnectionMessage, 12, ROSE));
+        Button refresh = primaryButton(baseUrl.isEmpty() ? "绑定工作台" : !bridgeReady ? "登录 / 重新连接" : "刷新云端，只读取");
+        refresh.setEnabled(!saving && !syncing && !bindingChanging && (draftSheet == null || !draftSheet.isBusy())
+            && (workSheet == null || !workSheet.isBusy()) && (aiSheet == null || !aiSheet.isBusy())
+            && (nutritionSheet == null || !nutritionSheet.isBusy()));
+        refresh.setOnClickListener(v -> { if (baseUrl.isEmpty()) showBinding(); else sync(); });
+        read.addView(refresh);
+        body.addView(read);
+
+        LinearLayout local = card();
+        local.addView(text("留在手机里的内容", 19, INK));
+        WorkbenchSyncPolicy.Summary count = draftSummary();
+        if (!WorkbenchSyncPolicy.validScope(activeDraftScope)) {
+            local.addView(text("先成功登录一次，才能建立账号隔离的本机草稿空间。", 13, MUTED));
+        } else if (count == null) {
+            local.addView(text("草稿读取失败。没有覆盖本机数据，也不会当作 0 条或自动上传。", 13, ROSE));
+        } else {
+            syncLine(local, "仅存本机", count.local + " 条，尚未由这份草稿提交", GREEN);
+            syncLine(local, "本次请求被拒绝", count.rejected + " 条，需核对登录与原内容", count.rejected > 0 ? ROSE : MUTED);
+            syncLine(local, "结果待核对", count.uncertain + " 条，可能已经保存", count.uncertain > 0 ? ROSE : MUTED);
+            syncLine(local, "云端回执已确认", count.confirmed + " 条，本机副本待清理，不再提交", GREEN);
+        }
+        local.addView(text("草稿按工作台和账号分区，支持记录、日程与收件箱。饮食和兼职仍需联网；没有后台自动提交。", 12, MUTED));
+        Button draftsButton = primaryButton("查看并逐条处理草稿");
+        draftsButton.setEnabled(WorkbenchSyncPolicy.validScope(activeDraftScope) && !saving && !bindingChanging);
+        draftsButton.setOnClickListener(v -> showDrafts());
+        local.addView(draftsButton);
+        Button record = secondaryButton("离线写记录草稿");
+        record.setEnabled(WorkbenchSyncPolicy.validScope(activeDraftScope) && !saving && !bindingChanging);
+        record.setOnClickListener(v -> showRecordDialog());
+        local.addView(record);
+        Button schedule = secondaryButton("离线写日程草稿");
+        schedule.setEnabled(WorkbenchSyncPolicy.validScope(activeDraftScope) && !saving && !bindingChanging);
+        schedule.setOnClickListener(v -> showScheduleDialog());
+        local.addView(schedule);
+        body.addView(local);
+
+        LinearLayout saved = card();
+        saved.addView(text("保存结果核对", 19, INK));
+        long receipt = syncReceipts.lastReceipt(activeDraftScope, System.currentTimeMillis());
+        syncLine(saved, "最近已记录的有效回执", receipt > 0 ? syncTime(receipt) : "尚未记录到回执，不代表云端没有内容", INK);
+        saved.addView(text("这里记录主页面记录、日程、打卡、收件箱及本机草稿的有效回执时间，"
+            + "不是全部功能的同步日志，也不代表其他操作已成功。", 12, MUTED));
+        if (saving) saved.addView(text("主页面请求正在等待回执，请勿重复提交。", 13, GREEN));
+        if (!lastWriteRejectedScope.isEmpty() && lastWriteRejectedScope.equals(activeDraftScope))
+            saved.addView(text("上一次主页面请求被拒绝。请检查输入与登录；这不代表此前内容从未保存。", 13, ROSE));
+        if (saveOutcomeUnknown) {
+            saved.addView(text("有主页面 / AI 保存结果待核对。网络中断不代表未保存，请先刷新并查看原内容。", 13, ROSE));
+            Button acknowledge = secondaryButton("我已核对主页面 / AI 保存结果");
+            acknowledge.setOnClickListener(v -> acknowledgeMainSave());
+            saved.addView(acknowledge);
+        }
+        if (NativeNutritionSheet.hasUnknownSave(this, baseUrl)) {
+            saved.addView(text("有饮食保存结果待核对，请进入热量与饮食单独核对。", 13, ROSE));
+            Button nutrition = secondaryButton("去热量与饮食核对");
+            nutrition.setOnClickListener(v -> showNutrition());
+            saved.addView(nutrition);
+        }
+        if (!saveOutcomeUnknown && !NativeNutritionSheet.hasUnknownSave(this, baseUrl))
+            saved.addView(text("未检测到上述待核对标记，不等于全部内容均已同步。", 12, MUTED));
+        body.addView(saved);
+        Button back = secondaryButton("返回首页");
+        back.setOnClickListener(v -> selectTab("home"));
+        body.addView(back);
+    }
+
+    private void refreshSyncView() {
+        if (!isFinishing() && !isDestroyed() && ("home".equals(tab) || "sync".equals(tab) || "me".equals(tab))) render();
+    }
+
+    private void recordSyncReceipt(String scope) {
+        if (!WorkbenchSyncPolicy.validScope(scope) || !scope.equals(activeDraftScope)) return;
+        try { syncReceipts.received(scope, System.currentTimeMillis()); }
+        catch (RuntimeException ignored) {
+            Toast.makeText(this, "有效保存回执已收到，但本机回执时间未能记录。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void acknowledgeMainSave() {
+        if (!saveOutcomeUnknown) return;
+        if (!bridgeReady || !homeReadSucceeded || syncing || saving || bindingChanging || data == null) {
+            Toast.makeText(this, "请先成功刷新云端，再核对原内容后确认。", Toast.LENGTH_LONG).show(); return;
+        }
+        final String scope = activeDraftScope;
+        new AlertDialog.Builder(this).setTitle("确认已核对原保存结果")
+            .setMessage("请查看原内容是否已经保存。确认只清除本机的阻止重复提交标记，不会证明云端成功，也不会重发或删除内容。")
+            .setNegativeButton("继续核对", null).setPositiveButton("已核对", (d, w) -> {
+                if (!scope.equals(activeDraftScope) || !bridgeReady || !homeReadSucceeded || syncing || saving || bindingChanging) return;
+                setSaveOutcomeUnknown(false);
+                render();
+            }).show();
     }
 
     private void addHomeConnectionState(LinearLayout body) {
@@ -613,7 +783,13 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (!bridgeReady || data == null) { showAuth(); return; }
+        if (!bridgeReady || data == null) {
+            if (WorkbenchSyncPolicy.validScope(activeDraftScope)) {
+                if ("record-create".equals(key)) { showRecordDialog(); return; }
+                if ("schedule-create".equals(key)) { showScheduleDialog(); return; }
+            }
+            showAuth(); return;
+        }
         if ("nutrition".equals(key)) showNutrition();
         else if ("record-create".equals(key)) showRecordDialog();
         else if ("schedule-create".equals(key)) showScheduleDialog();
@@ -1083,12 +1259,13 @@ public class MainActivity extends AppCompatActivity {
         version.setPadding(0, dp(14), 0, 0);
         account.addView(version);
         body.addView(account);
+        body.addView(syncCenterButton());
 
         Button features = secondaryButton("全部功能与使用入口");
         features.setOnClickListener(v -> selectTab("features"));
         body.addView(features);
         Button work=primaryButton("兼职工时与结算");work.setOnClickListener(v->showWork());body.addView(work);
-        Button local=secondaryButton("本机草稿 · "+draftCount());local.setOnClickListener(v->showDrafts());body.addView(local);
+        Button local=secondaryButton("本机草稿 · "+draftCountLabel());local.setOnClickListener(v->showDrafts());body.addView(local);
         addNutritionEntry(body);
         body.addView(reminderOverviewButton());
         body.addView(privacyButton());
@@ -1128,10 +1305,7 @@ public class MainActivity extends AppCompatActivity {
             uncertain.addView(text("有一次保存结果待核实", 17, INK));
             uncertain.addView(text("请先同步查看。网络超时不代表没有保存，App 不会自动重发。", 13, MUTED));
             Button acknowledge = secondaryButton("我已核对云端结果");
-            acknowledge.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("确认已核对")
-                .setMessage("确认后允许发起新的操作，不会重发上一次保存。请避免重复添加已经存在的内容。")
-                .setNegativeButton("继续核对", null)
-                .setPositiveButton("已核对", (dialog, which) -> { setSaveOutcomeUnknown(false); render(); }).show());
+            acknowledge.setOnClickListener(v -> acknowledgeMainSave());
             uncertain.addView(acknowledge);
             body.addView(uncertain);
         }
@@ -1160,6 +1334,7 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("重新授权", (dialog, which) -> {
                     invalidateLocalReminders();
+                    lastWriteRejectedScope = "";
                     bridgeReady = false;
                     mobileApi.cancelPending();
                     resetScheduleFilters();
@@ -1787,11 +1962,15 @@ public class MainActivity extends AppCompatActivity {
         });dialog.show();
     }
 
-    private int draftCount() { try{return drafts==null?0:drafts.list().length();}catch(Exception ignored){return 0;} }
+    private String draftCountLabel() {
+        if (!WorkbenchSyncPolicy.validScope(activeDraftScope)) return "需先登录";
+        WorkbenchSyncPolicy.Summary count = draftSummary();
+        return count == null ? "读取失败" : Integer.toString(count.total);
+    }
     private void saveDraft(JSONObject payload,AlertDialog form) {
         try {
             if(drafts==null||activeDraftScope.isEmpty())throw new IllegalStateException("请先完成一次工作台登录，才能建立账号隔离的本机草稿。");
-            drafts.add(payload);form.dismiss();Toast.makeText(this,"已保存到本机，尚未提交云端。",Toast.LENGTH_LONG).show();if(data!=null)render();
+            drafts.add(payload);form.dismiss();Toast.makeText(this,"已保存到本机，尚未提交云端。",Toast.LENGTH_LONG).show();render();
         } catch(Exception error){Toast.makeText(this,error.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void showDrafts() {
@@ -1800,8 +1979,13 @@ public class MainActivity extends AppCompatActivity {
         final String scope=activeDraftScope;
         draftSheet=new NativeDraftSheet(this,mobileApi,baseUrl,drafts,new NativeDraftSheet.Host(){
             @Override public boolean connected(){return bridgeReady&&data!=null&&scope.equals(activeDraftScope)&&!saving&&!syncing&&!saveOutcomeUnknown&&!bindingChanging;}
-            @Override public void onSaved(){sync();}
-            @Override public void onClosed(){draftSheet=null;}
+            @Override public void onSaved(){recordSyncReceipt(scope);sync();}
+            @Override public void onClosed(){
+                draftSheet=null;
+                if(!isFinishing()&&!isDestroyed()&&!bindingChanging)render();
+            }
+            @Override public void onRefresh(){if(baseUrl.isEmpty())showBinding();else sync();}
+            @Override public void onAuthRequired(){homeReadSucceeded=false;invalidateLocalReminders();showAuth();}
         });draftSheet.show();
     }
     private void showWork() {
@@ -1861,8 +2045,11 @@ public class MainActivity extends AppCompatActivity {
             showAuth();
             return;
         }
+        final String receiptScope = activeDraftScope;
+        lastWriteRejectedScope = "";
         saving = true;
         syncLabel.setText("正在保存");
+        refreshSyncView();
         api("POST", payload, envelope -> {
             saving = false;
             int status = envelope.optInt("status");
@@ -1872,7 +2059,9 @@ public class MainActivity extends AppCompatActivity {
             }
             if (status >= 400 || status == 0) {
                 setSaveOutcomeUnknown(status == 0 || status >= 500);
+                if (status >= 400 && status < 500) lastWriteRejectedScope = receiptScope;
                 syncLabel.setText(saveOutcomeUnknown ? "结果待核实" : "保存失败");
+                refreshSyncView();
                 Toast.makeText(this, responseError(envelope), Toast.LENGTH_LONG).show();
                 return;
             }
@@ -1883,8 +2072,10 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception error) {
                 setSaveOutcomeUnknown(true);
                 syncLabel.setText("结果待核实");
+                refreshSyncView();
                 Toast.makeText(this, "没有收到有效保存回执，请先同步核对。", Toast.LENGTH_LONG).show(); return;
             }
+            recordSyncReceipt(receiptScope);
             if (onSaved != null) onSaved.run();
             sync();
         });
@@ -1899,7 +2090,7 @@ public class MainActivity extends AppCompatActivity {
         syncing = true;
         connectionDiagnosticState = "reading";
         syncLabel.setText("同步中");
-        if ("home".equals(tab) && data != null) render();
+        if ("home".equals(tab) || "sync".equals(tab) || "me".equals(tab)) render();
         api("GET", null, envelope -> {
             syncing = false;
             int status = envelope.optInt("status");
@@ -1917,7 +2108,7 @@ public class MainActivity extends AppCompatActivity {
                 homeConnectionMessage = responseError(envelope);
                 if (data == null) showError(homeConnectionMessage);
                 else {
-                    if ("home".equals(tab)) render();
+                    refreshSyncView();
                     Toast.makeText(this, homeConnectionMessage, Toast.LENGTH_LONG).show();
                 }
                 return;
@@ -1932,6 +2123,7 @@ public class MainActivity extends AppCompatActivity {
                 if(accountScope.isEmpty())throw new IllegalArgumentException("account missing");
                 if(!accountScope.equals(activeDraftScope)){
                     dismissReminderEditor();
+                    lastWriteRejectedScope = "";
                     resetScheduleFilters();
                     resetRecordFilters();
                     if(draftSheet!=null)draftSheet.close();
@@ -1990,7 +2182,7 @@ public class MainActivity extends AppCompatActivity {
         homeReadSucceeded = false;
         homeConnectionMessage = message;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
-        if ("home".equals(tab)) { render(); return; }
+        if ("home".equals(tab) || "sync".equals(tab)) { render(); return; }
         content.removeAllViews();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -2022,6 +2214,7 @@ public class MainActivity extends AppCompatActivity {
             Button draftsButton=secondaryButton("查看本机草稿");draftsButton.setOnClickListener(v->showDrafts());box.addView(draftsButton);
             Button capture=secondaryButton("离线写一条草稿");capture.setOnClickListener(v->showRecordDialog());box.addView(capture);
         }
+        box.addView(syncCenterButton());
         box.addView(diagnosticsButton());
         body.addView(box);
         scroll.addView(body);
@@ -2170,6 +2363,7 @@ public class MainActivity extends AppCompatActivity {
     private void bindWorkbench(String origin) {
         invalidateLocalReminders();
         bindingChanging = true;
+        lastWriteRejectedScope = "";
         if(workSheet!=null)workSheet.close();
         if(draftSheet!=null)draftSheet.close();
         if (nutritionSheet != null) nutritionSheet.close();

@@ -48,10 +48,12 @@ test("native UI validates current snapshot and clears reminders at account bound
 test("reminder preview version and release notes remain aligned", () => {
   const gradle = source("android/app/build.gradle");
   const workflow = source(".github/workflows/android-native-preview.yml");
-  const notes = source("docs/ANDROID-PREVIEW-RELEASE-1.8.15.md");
-  assert.match(gradle, /versionCode 10017/);
-  assert.match(gradle, /versionName "1.8.15"/);
-  assert.match(workflow, /versionCode='10017'.*versionName='1.8.15-preview'/);
+  const version = /versionName "([0-9.]+)"/.exec(gradle)?.[1];
+  const code = /versionCode ([0-9]+)/.exec(gradle)?.[1];
+  assert.ok(version && code, "native version metadata is required");
+  const notes = source("docs/ANDROID-PREVIEW-RELEASE-" + version + ".md");
+  assert.ok(workflow.includes("versionCode='" + code + "'"));
+  assert.ok(workflow.includes("versionName='" + version + "-preview'"));
   assert.match(workflow, /RICHANGYU_ANDROID_PREVIEW_CERT_SHA256/);
   assert.match(workflow, /:app:lintDebug/);
   assert.match(notes, /Phone acceptance is still pending/);
