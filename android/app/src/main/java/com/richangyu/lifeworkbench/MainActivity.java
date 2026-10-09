@@ -77,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
     private NativeScheduleReminders.Request pendingReminderRequest;
     private String pendingReminderKey = "";
     private NativeAiSheet aiSheet;
+    private NativeWeekSheet weekSheet;
     private NativeWorkSheet workSheet;
     private NativeDraftSheet draftSheet;
     private NativeDraftStore drafts;
@@ -759,6 +760,10 @@ public class MainActivity extends AppCompatActivity {
             more.addView(button, params);
         }
         body.addView(more);
+        Button week = secondaryButton("未来 7 天日程总览");
+        week.setOnClickListener(v -> showWeek());
+        week.setEnabled(!saving && !syncing && !bindingChanging);
+        body.addView(week);
     }
 
     private void addHomeActionRow(LinearLayout body, View first, View second) {
@@ -1101,6 +1106,11 @@ public class MainActivity extends AppCompatActivity {
     private void renderSchedules(LinearLayout body) {
         pageTitle(body, "日程安排", "给重要的事留出时间。日期均按北京时间显示。", "新增日程", this::showScheduleDialog);
         final JSONArray schedules = data.optJSONArray("schedules");
+        Button week = secondaryButton("未来 7 天日程总览");
+        week.setOnClickListener(v -> showWeek());
+        week.setEnabled(!saving && !syncing && !bindingChanging);
+        body.addView(week);
+        body.addView(text("按天查看后续部分安排，不代表完整日历或空闲时间。", 11, MUTED));
         LinearLayout filters = card();
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -2122,6 +2132,7 @@ public class MainActivity extends AppCompatActivity {
                 String accountScope=WorkbenchOperationPolicy.scope(baseUrl,snapshot.getJSONObject("user").optString("email"));
                 if(accountScope.isEmpty())throw new IllegalArgumentException("account missing");
                 if(!accountScope.equals(activeDraftScope)){
+                    if (weekSheet != null) weekSheet.close();
                     dismissReminderEditor();
                     lastWriteRejectedScope = "";
                     resetScheduleFilters();
@@ -2245,10 +2256,36 @@ public class MainActivity extends AppCompatActivity {
         nutritionSheet.show();
     }
 
+    private void showWeek() {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
+            || aiSheet != null || nutritionSheet != null) {
+            Toast.makeText(this, "请先等待当前连接或关闭其他页面。", Toast.LENGTH_SHORT).show(); return;
+        }
+        if (weekSheet != null) return;
+        if (!bridgeReady || data == null || activeDraftScope.isEmpty()) { showAuth(); return; }
+        if (!homeReadSucceeded) {
+            sync(); Toast.makeText(this, "先重新读取工作台，成功后再打开日程总览。", Toast.LENGTH_SHORT).show(); return;
+        }
+        final String scope = activeDraftScope;
+        weekSheet = new NativeWeekSheet(this, mobileApi, new NativeWeekSheet.Host() {
+            @Override public String accountScope() { return activeDraftScope; }
+            @Override public boolean readsAllowed() {
+                return bridgeReady && homeReadSucceeded && !saving && !syncing && !bindingChanging
+                    && scope.equals(activeDraftScope);
+            }
+            @Override public void onAuthRequired() {
+                if (weekSheet != null) weekSheet.close();
+                homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
+            }
+            @Override public void onClosed() { weekSheet = null; }
+        });
+        weekSheet.show();
+    }
+
     private void showAi() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
-        if (aiSheet != null || nutritionSheet != null) return;
+        if (aiSheet != null || nutritionSheet != null || weekSheet != null) return;
         final String scope=activeDraftScope;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || syncing || bindingChanging
@@ -2256,6 +2293,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public String accountScope() { return activeDraftScope; }
             @Override public void onAuthRequired() {
                 if (aiSheet != null) aiSheet.close();
+                if (weekSheet != null) weekSheet.close();
                 homeReadSucceeded=false;invalidateLocalReminders();showAuth();
             }
             @Override public void onSaved() { recordSyncReceipt(scope);sync(); }
@@ -2371,6 +2409,7 @@ public class MainActivity extends AppCompatActivity {
         if(draftSheet!=null)draftSheet.close();
         if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
+        if (weekSheet != null) weekSheet.close();
         bridgeReady = false; mobileApi.close();
         if (authWebView != null) {
             authWebView.stopLoading(); detach(authWebView); authWebView.destroy(); authWebView = null;
@@ -2398,6 +2437,7 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void showAuth() {
+        if (weekSheet != null) weekSheet.close();
         if (bindingChanging) return;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
@@ -2455,6 +2495,7 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "只允许安全的 HTTPS 授权页面。", Toast.LENGTH_LONG).show(); return true;
                 }
                 @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                    if (weekSheet != null) weekSheet.close();
                     connectionDiagnosticState = "authorization";
                     bridgeReady = false; mobileApi.cancelPending();
                 }
@@ -2571,6 +2612,7 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionSheet != null) nutritionSheet.close();
         if (nutritionPhotoPicker != null) nutritionPhotoPicker.close();
         if (aiSheet != null) aiSheet.close();
+        if (weekSheet != null) weekSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
