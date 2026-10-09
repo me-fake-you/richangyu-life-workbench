@@ -1,5 +1,7 @@
 package com.richangyu.lifeworkbench;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
@@ -37,6 +39,9 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ProgressBar;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import androidx.core.app.ActivityCompat;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.TimePicker;
@@ -64,6 +69,11 @@ import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private String baseUrl = "";
+    private static final int REMINDER_PERMISSION_REQUEST = 4100;
+    private NativeScheduleReminders reminders;
+    private AlertDialog reminderDialog;
+    private NativeScheduleReminders.Request pendingReminderRequest;
+    private String pendingReminderKey = "";
     private NativeAiSheet aiSheet;
     private NativeWorkSheet workSheet;
     private NativeDraftSheet draftSheet;
@@ -143,6 +153,10 @@ public class MainActivity extends AppCompatActivity {
         saveOutcomeUnknown = prefs.getBoolean("save_outcome_unknown", false);
         activeDraftScope = prefs.getString("active_scope:" + baseUrl, "");
         drafts = new NativeDraftStore(this, activeDraftScope);
+        reminders = new NativeScheduleReminders(this);
+        try { reminders.switchScope(activeDraftScope); reminders.restore(); }
+        catch (RuntimeException ignored) { /* A fresh authenticated sync can reconcile again. */ }
+        readReminderIntent(getIntent());
         mobileApi = new MobileApiBridge(baseUrl.isEmpty() ? "https://unconfigured.invalid" : baseUrl);
         updateChecker = new NativeUpdateChecker();
         buildShell();
@@ -1076,6 +1090,7 @@ public class MainActivity extends AppCompatActivity {
         Button work=primaryButton("兼职工时与结算");work.setOnClickListener(v->showWork());body.addView(work);
         Button local=secondaryButton("本机草稿 · "+draftCount());local.setOnClickListener(v->showDrafts());body.addView(local);
         addNutritionEntry(body);
+        body.addView(reminderOverviewButton());
         body.addView(privacyButton());
         sectionTitle(body, "安装与更新");
         LinearLayout updates = card();
@@ -1141,9 +1156,10 @@ public class MainActivity extends AppCompatActivity {
         relink.setOnClickListener(v -> {
             if (saving) { Toast.makeText(this, "请先等待当前保存结束。", Toast.LENGTH_LONG).show(); return; }
             new AlertDialog.Builder(this).setTitle("重新授权工作台")
-                .setMessage("会清除本 App 的登录会话和当前页面数据，不会删除云端记录。")
+                .setMessage("会清除本 App 的登录会话、当前页面数据和本机日程提醒，不会删除云端记录。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("重新授权", (dialog, which) -> {
+                    invalidateLocalReminders();
                     bridgeReady = false;
                     mobileApi.cancelPending();
                     resetScheduleFilters();
@@ -1405,6 +1421,7 @@ public class MainActivity extends AppCompatActivity {
             : ("cancelled".equals(rawStatus) || "canceled".equals(rawStatus)) ? "已取消"
             : "active".equals(rawStatus) ? "进行中" : rawStatus;
         details.addView(text(status + " · 北京时间", 11, MUTED));
+        details.addView(text("本机提醒：" + reminders.labelFor(schedule.optString("id")), 11, GREEN));
         String place = schedule.optString("place"), note = schedule.optString("note");
         if (!place.isEmpty()) {
             TextView location = text("地点：" + place, 13, MUTED);
@@ -1421,11 +1438,198 @@ public class MainActivity extends AppCompatActivity {
             details.addView(description);
         }
         item.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
-        item.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(schedule.optString("title", "日程"))
-            .setMessage(pretty(start) + "\n结束：" + pretty(end) + "\n状态：" + status
-                + (place.isEmpty() ? "" : "\n地点：" + place) + (note.isEmpty() ? "" : "\n\n" + note))
-            .setPositiveButton("关闭", null).show());
+        item.setOnClickListener(v -> showScheduleDetails(schedule));
         body.addView(item);
+    }
+
+
+    private Button reminderOverviewButton() {
+        Button button = secondaryButton("本机日程提醒 · " + reminders.configuredCount());
+        button.setOnClickListener(v -> showReminderOverview());
+        return button;
+    }
+
+    private void dismissReminderEditor() {
+        pendingReminderRequest = null;
+        if (reminderDialog != null) reminderDialog.dismiss();
+        reminderDialog = null;
+    }
+
+    private void invalidateLocalReminders() {
+        dismissReminderEditor();
+        pendingReminderKey = "";
+        // Invalidating the account anchor first also blocks delivery if reminder cleanup fails.
+        getSharedPreferences("native_workbench", MODE_PRIVATE).edit().remove("active_scope:" + baseUrl).apply();
+        if (reminders != null) {
+            try { reminders.switchScope(""); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private JSONObject currentSchedule(String id, JSONObject snapshot) {
+        if (id == null || id.isEmpty() || snapshot == null) return null;
+        JSONArray schedules = snapshot.optJSONArray("schedules");
+        JSONObject found = null;
+        if (schedules != null) for (int i = 0; i < schedules.length(); i++) {
+            JSONObject item = schedules.optJSONObject(i);
+            if (item != null && id.equals(item.optString("id"))) {
+                if (found != null) return null;
+                found = item;
+            }
+        }
+        return found;
+    }
+
+    private void showScheduleDetails(JSONObject schedule) {
+        String place = schedule.optString("place"), note = schedule.optString("note");
+        new AlertDialog.Builder(this).setTitle(schedule.optString("title", "日程"))
+            .setMessage(pretty(schedule.optString("startAt")) + "\n结束：" + pretty(schedule.optString("endAt"))
+                + "\n状态：" + schedule.optString("status", "待核对")
+                + "\n本机提醒：" + reminders.labelFor(schedule.optString("id"))
+                + (place.isEmpty() ? "" : "\n地点：" + place) + (note.isEmpty() ? "" : "\n\n" + note))
+            .setNeutralButton("本机提醒", (d, which) -> showScheduleReminder(schedule))
+            .setPositiveButton("关闭", null).show();
+    }
+
+    private void showScheduleReminder(JSONObject schedule) {
+        if (reminderDialog != null || bindingChanging || !WorkbenchReminderPolicy.validScope(activeDraftScope)) return;
+        final String scope = activeDraftScope;
+        LinearLayout form = dialogForm();
+        form.addView(text("普通提醒可能因系统省电而延迟，不是精确闹钟，也不会修改云端日程。"
+            + "\n远端更改需打开 App 刷新；本次未能核对的提醒会暂停，需重新确认。通知不展示日程详情。", 13, MUTED));
+        RadioGroup choices = new RadioGroup(this);
+        choices.setOrientation(LinearLayout.VERTICAL);
+        final int[] offsets = {0, 10, 30, 60};
+        final int[] ids = new int[offsets.length];
+        for (int i = 0; i < offsets.length; i++) {
+            RadioButton option = new RadioButton(this);
+            ids[i] = View.generateViewId();
+            option.setId(ids[i]);
+            option.setText(offsets[i] == 0 ? "开始时提醒" : "提前 " + offsets[i] + " 分钟");
+            option.setTextColor(INK);
+            option.setTextSize(15);
+            option.setMinHeight(dp(48));
+            choices.addView(option, new RadioGroup.LayoutParams(-1, -2));
+            if (offsets[i] == reminders.offsetFor(schedule.optString("id"))) choices.check(ids[i]);
+        }
+        form.addView(choices);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(form, new ScrollView.LayoutParams(-1, -2));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("设置本机日程提醒")
+            .setView(scroll).setNegativeButton("返回", null)
+            .setNeutralButton("取消这条提醒", (d, which) -> {
+                if (!scope.equals(activeDraftScope)) return;
+                try { reminders.cancel(schedule.optString("id")); render(); }
+                catch (RuntimeException error) { Toast.makeText(this, "未能清理本机提醒，请重试。", Toast.LENGTH_LONG).show(); }
+            }).setPositiveButton("设置提醒", null).create();
+        reminderDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (reminderDialog == dialog) { reminderDialog = null; pendingReminderRequest = null; }
+        });
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (pendingReminderRequest != null) return;
+            int minutes = -1;
+            for (int i = 0; i < ids.length; i++) if (choices.getCheckedRadioButtonId() == ids[i]) minutes = offsets[i];
+            NativeScheduleReminders.Request request = new NativeScheduleReminders.Request(scope, schedule, minutes);
+            if (WorkbenchReminderPolicy.trigger(request.candidate(), minutes, System.currentTimeMillis()) == null) {
+                Toast.makeText(this, "请选择尚未到期的有效提醒时间。", Toast.LENGTH_LONG).show(); return;
+            }
+            if (Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                pendingReminderRequest = request;
+                ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.POST_NOTIFICATIONS}, REMINDER_PERMISSION_REQUEST);
+            } else if (!reminders.notificationsAllowed()) {
+                new AlertDialog.Builder(this).setTitle("通知未开启")
+                    .setMessage("本次尚未设置提醒。可到系统设置开启 App 通知与日程提醒频道，再回来主动设置。")
+                    .setNegativeButton("返回", null).setPositiveButton("系统设置", (a, w) -> {
+                        Intent settings = Build.VERSION.SDK_INT >= 26
+                            ? new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())
+                            : new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                        try { startActivity(settings); } catch (ActivityNotFoundException ignored) {
+                            Toast.makeText(this, "请在系统设置中开启 App 通知。", Toast.LENGTH_LONG).show();
+                        }
+                    }).show();
+            } else commitReminderRequest(request);
+        }));
+        dialog.show();
+    }
+
+    private void commitReminderRequest(NativeScheduleReminders.Request request) {
+        if (isFinishing() || isDestroyed()) return;
+        JSONObject latest = currentSchedule(request.id, data);
+        WorkbenchReminderPolicy.Candidate candidate = latest == null ? null : new NativeScheduleReminders.Request(activeDraftScope, latest, request.minutes).candidate();
+        WorkbenchReminderPolicy.Candidate frozen = request.candidate();
+        if (!request.scope.equals(activeDraftScope) || !bridgeReady || !homeReadSucceeded || bindingChanging
+            || syncing || saving || System.currentTimeMillis() - lastHomeReadAt > 5 * 60000L
+            || frozen.start == null || frozen.end == null || !WorkbenchReminderPolicy.sameTime(candidate, frozen.start, frozen.end)
+            || !candidate.status.equals(frozen.status)) {
+            Toast.makeText(this, "日程或连接状态已变化，请先刷新，再重新设置提醒。", Toast.LENGTH_LONG).show(); return;
+        }
+        try {
+            reminders.create(request);
+            dismissReminderEditor();
+            render();
+            Toast.makeText(this, "已设置本机普通提醒，系统可能延迟。", Toast.LENGTH_LONG).show();
+        } catch (RuntimeException error) {
+            Toast.makeText(this, error.getMessage() == null ? "本机提醒未设置，请重新核对。" : error.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REMINDER_PERMISSION_REQUEST) return;
+        NativeScheduleReminders.Request request = pendingReminderRequest;
+        pendingReminderRequest = null;
+        if (request != null && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+            commitReminderRequest(request);
+        else Toast.makeText(this, "本次未设置提醒，不影响日程使用。", Toast.LENGTH_LONG).show();
+    }
+
+    private void showReminderOverview() {
+        final String scope = activeDraftScope;
+        new AlertDialog.Builder(this).setTitle("本机日程提醒")
+            .setMessage("已安排：" + reminders.configuredCount() + " 条\n需重新核对：" + reminders.reviewCount()
+                + " 条\n通知：" + (reminders.notificationsAllowed() ? "已开启" : "未开启")
+                + "\n\n到“日程”点开一条安排，设置开始时或提前 10、30、60 分钟的提醒。"
+                + "\n提醒只在本机运行，不是后台实时同步。重启或安装更新仅恢复尚未到期的提醒，不补发错过的提醒。"
+                + "\n系统省电或强行停止 App 可能导致延迟或不提醒。一次最多保存 64 条设置，清理只影响本机。")
+            .setPositiveButton("关闭", null).setNeutralButton("刷新核对", (d, w) -> sync())
+            .setNegativeButton("取消全部本机提醒", (d, w) -> new AlertDialog.Builder(this).setTitle("取消本机提醒？")
+                .setMessage("仅取消这台手机的提醒，不会删除或修改云端日程。").setNegativeButton("返回", null)
+                .setPositiveButton("确认取消", (a, b) -> {
+                    if (!scope.equals(activeDraftScope)) return;
+                    try { reminders.clear(); render(); }
+                    catch (RuntimeException error) { Toast.makeText(this, "清理失败，请重试。", Toast.LENGTH_LONG).show(); }
+                }).show()).show();
+    }
+
+    private void readReminderIntent(Intent intent) {
+        if (intent == null || !NativeScheduleReminders.ACTION_OPEN.equals(intent.getAction())) return;
+        String key = intent.getStringExtra(NativeScheduleReminders.EXTRA_KEY);
+        if (WorkbenchReminderPolicy.validKey(key)) pendingReminderKey = key;
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        readReminderIntent(intent);
+        if (!pendingReminderKey.isEmpty()) {
+            dismissReminderEditor();
+            if (bridgeReady) sync(); else showAuth();
+        }
+    }
+
+    private void openPendingReminder(JSONObject snapshot) {
+        if (pendingReminderKey.isEmpty()) return;
+        String key = pendingReminderKey;
+        pendingReminderKey = "";
+        String id = reminders.idForKey(key, activeDraftScope);
+        JSONObject schedule = currentSchedule(id, snapshot);
+        if (schedule == null) {
+            Toast.makeText(this, "本次未能核对这条提醒，可能已变更或属于其他账号。请查看日程，不会补造记录。", Toast.LENGTH_LONG).show(); return;
+        }
+        resetScheduleFilters();
+        selectTab("schedule");
+        showScheduleDetails(schedule);
     }
 
     private String visualDateLabel(String raw, String pattern, String fallback) {
@@ -1727,6 +1931,7 @@ public class MainActivity extends AppCompatActivity {
                 String accountScope=WorkbenchOperationPolicy.scope(baseUrl,snapshot.getJSONObject("user").optString("email"));
                 if(accountScope.isEmpty())throw new IllegalArgumentException("account missing");
                 if(!accountScope.equals(activeDraftScope)){
+                    dismissReminderEditor();
                     resetScheduleFilters();
                     resetRecordFilters();
                     if(draftSheet!=null)draftSheet.close();
@@ -1735,6 +1940,11 @@ public class MainActivity extends AppCompatActivity {
                 }
                 getSharedPreferences("native_workbench",MODE_PRIVATE).edit().putString("active_scope:"+baseUrl,activeDraftScope).apply();
                 data = snapshot;
+                try { reminders.reconcile(accountScope, snapshot.optJSONArray("schedules")); }
+                catch (RuntimeException reminderError) {
+                    invalidateLocalReminders();
+                    Toast.makeText(this, "本机提醒核对失败，请到日程详情重新确认。", Toast.LENGTH_LONG).show();
+                }
                 lastHomeReadAt = System.currentTimeMillis();
                 homeReadSucceeded = true;
                 homeConnectionMessage = "";
@@ -1743,6 +1953,7 @@ public class MainActivity extends AppCompatActivity {
                 syncLabel.setText(saveOutcomeUnknown ? "结果待核实" : "已同步");
                 closeAuth();
                 selectTab(tab);
+                openPendingReminder(snapshot);
             } catch (Exception error) {
                 connectionDiagnosticState = "invalid-response";
                 syncLabel.setText("数据异常");
@@ -1757,8 +1968,13 @@ public class MainActivity extends AppCompatActivity {
         String url = envelope.optString("url");
         if (status == 0) return false;
         Uri uri = Uri.parse(url);
-        return status == 401 || status == 403 || type.contains("text/html")
+        boolean required = status == 401 || status == 403 || type.contains("text/html")
             || !mobileApi.matchesOrigin(uri) || !"/api/mobile".equals(uri.getPath());
+        if (required) {
+            homeReadSucceeded = false;
+            invalidateLocalReminders();
+        }
+        return required;
     }
 
     private String responseError(JSONObject envelope) {
@@ -1930,7 +2146,7 @@ public class MainActivity extends AppCompatActivity {
             .setTitle((previousOrigin.isEmpty() ? "确认连接到 " : "确认切换到 ") + Uri.parse(origin).getHost())
             .setMessage(previousOrigin.isEmpty()
                 ? "将使用这个工作台地址打开登录授权页，并向它读取和保存你的工作台数据。请核对域名确实属于你要使用的工作台；此确认不会自动登录或创建记录。"
-                : "会清除本 App 的登录会话、当前页面和 AI 草稿，再授权新工作台。不会删除旧工作台的云端记录。请确认新域名可信。")
+                : "会清除本 App 的登录会话、当前页面、AI 草稿和本机日程提醒，再授权新工作台。不会删除旧工作台的云端记录。请确认新域名可信。")
             .setNegativeButton("返回修改", null)
             .setPositiveButton(previousOrigin.isEmpty() ? "确认连接" : "确认更换", (d, which) -> {
                 if (isFinishing() || isDestroyed()) return;
@@ -1952,6 +2168,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void bindWorkbench(String origin) {
+        invalidateLocalReminders();
         bindingChanging = true;
         if(workSheet!=null)workSheet.close();
         if(draftSheet!=null)draftSheet.close();
@@ -2141,13 +2358,14 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume(); clockHandler.removeCallbacks(clockTick); clockHandler.post(clockTick);
-        if (data != null && bridgeReady && !saving && (aiSheet == null || !aiSheet.isBusy())
+        if (data != null && bridgeReady && !saving && reminderDialog == null && (aiSheet == null || !aiSheet.isBusy())
             && (nutritionSheet == null || !nutritionSheet.isBusy())) sync();
     }
     @Override protected void onPause() {
         clockHandler.removeCallbacks(clockTick); super.onPause();
     }
     @Override protected void onDestroy() {
+        dismissReminderEditor();
         cancelScheduleFilter();
         clockHandler.removeCallbacks(clockTick);
         if (saving || (aiSheet != null && aiSheet.isWriting())) setSaveOutcomeUnknown(true);
