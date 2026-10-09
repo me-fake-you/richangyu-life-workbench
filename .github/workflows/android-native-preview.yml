@@ -2,7 +2,7 @@ name: Android native preview
 on:
   push:
     branches: ['codex/workbench-ai-20261002-c258dd87']
-    paths: ['android/**', '.github/workflows/android-native-preview.yml', 'docs/ANDROID-PREVIEW-RELEASE-1.8.16.md']
+    paths: ['android/**', '.github/workflows/android-native-preview.yml', 'docs/ANDROID-PREVIEW-RELEASE-1.8.17.md']
   pull_request:
     paths: ['android/**', '.github/workflows/android-native-preview.yml']
   workflow_dispatch:
@@ -91,16 +91,16 @@ jobs:
             exit 1
           fi
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > android-package.txt
-          grep -q "name='com.richangyu.lifeworkbench.preview'.*versionCode='10018'.*versionName='1.8.16-preview'" android-package.txt
+          grep -q "name='com.richangyu.lifeworkbench.preview'.*versionCode='10019'.*versionName='1.8.17-preview'" android-package.txt
           grep -q "targetSdkVersion:'36'" android-package.txt
           mkdir -p preview
-          cp "$apk" preview/life-workbench-v1.8.16-preview.apk
-          (cd preview && sha256sum life-workbench-v1.8.16-preview.apk > life-workbench-v1.8.16-preview.apk.sha256)
-          cp docs/ANDROID-PREVIEW-RELEASE-1.8.16.md preview/RELEASE-NOTES.md
-          printf '\n<!-- workbench-preview-package: com.richangyu.lifeworkbench.preview -->\n<!-- workbench-preview-version-code: 10018 -->\n<!-- workbench-preview-certificate-sha256: %s -->\n<!-- workbench-preview-signing: %s -->\n' "$certificate" "$signing" >> preview/RELEASE-NOTES.md
+          cp "$apk" preview/life-workbench-v1.8.17-preview.apk
+          (cd preview && sha256sum life-workbench-v1.8.17-preview.apk > life-workbench-v1.8.17-preview.apk.sha256)
+          cp docs/ANDROID-PREVIEW-RELEASE-1.8.17.md preview/RELEASE-NOTES.md
+          printf '\n<!-- workbench-preview-package: com.richangyu.lifeworkbench.preview -->\n<!-- workbench-preview-version-code: 10019 -->\n<!-- workbench-preview-certificate-sha256: %s -->\n<!-- workbench-preview-signing: %s -->\n' "$certificate" "$signing" >> preview/RELEASE-NOTES.md
       - uses: actions/upload-artifact@v7
         with:
-          name: android-native-preview-1.8.16
+          name: android-native-preview-1.8.17
           path: preview/
           if-no-files-found: error
           retention-days: 30
@@ -128,19 +128,19 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Download tested preview
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.16 --dir preview
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.17 --dir preview
       - name: Publish immutable prerelease, never overwrite a signature
         shell: bash
         run: |
           set -euo pipefail
-          tag=v1.8.16-preview
+          tag=v1.8.17-preview
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Existing preview retained; do not replace a same-version APK signed with a different debug key."
             exit 0
           fi
           gh release create "$tag" \
-            preview/life-workbench-v1.8.16-preview.apk \
-            preview/life-workbench-v1.8.16-preview.apk.sha256 \
+            preview/life-workbench-v1.8.17-preview.apk \
+            preview/life-workbench-v1.8.17-preview.apk.sha256 \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Android native 1.8.16-preview" \
+            --title "Android native 1.8.17-preview" \
             --notes-file preview/RELEASE-NOTES.md --prerelease --latest=false

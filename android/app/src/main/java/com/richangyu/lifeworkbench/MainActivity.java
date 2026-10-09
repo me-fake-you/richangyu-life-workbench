@@ -512,7 +512,7 @@ public class MainActivity extends AppCompatActivity {
         saved.addView(text("保存结果核对", 19, INK));
         long receipt = syncReceipts.lastReceipt(activeDraftScope, System.currentTimeMillis());
         syncLine(saved, "最近已记录的有效回执", receipt > 0 ? syncTime(receipt) : "尚未记录到回执，不代表云端没有内容", INK);
-        saved.addView(text("这里记录主页面记录、日程、打卡、收件箱及本机草稿的有效回执时间，"
+        saved.addView(text("这里记录主页面、草稿及 AI 保存 / 撤销的有效回执时间，"
             + "不是全部功能的同步日志，也不代表其他操作已成功。", 12, MUTED));
         if (saving) saved.addView(text("主页面请求正在等待回执，请勿重复提交。", 13, GREEN));
         if (!lastWriteRejectedScope.isEmpty() && lastWriteRejectedScope.equals(activeDraftScope))
@@ -2249,13 +2249,16 @@ public class MainActivity extends AppCompatActivity {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
         if (aiSheet != null || nutritionSheet != null) return;
+        final String scope=activeDraftScope;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
-            @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving; }
+            @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || syncing || bindingChanging
+                || !bridgeReady || !homeReadSucceeded || !scope.equals(activeDraftScope); }
+            @Override public String accountScope() { return activeDraftScope; }
             @Override public void onAuthRequired() {
                 if (aiSheet != null) aiSheet.close();
-                showAuth();
+                homeReadSucceeded=false;invalidateLocalReminders();showAuth();
             }
-            @Override public void onSaved() { sync(); }
+            @Override public void onSaved() { recordSyncReceipt(scope);sync(); }
             @Override public void onUnknownSave() {
                 setSaveOutcomeUnknown(true); syncLabel.setText("结果待核实");
             }
