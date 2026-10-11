@@ -5,7 +5,7 @@ const java = "android/app/src/main/java/com/richangyu/lifeworkbench/";
 const source = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
 test("seven-day overview uses one authenticated GET and never requests a model or writes", () => {
-  const sheet=source(java+"NativeWeekSheet.java");
+  const sheet=source(java+"NativeLegacyWeekSheet.java");
   assert.match(sheet,/ENDPOINT = "\/api\/assistant\?days=7"/);
   assert.match(sheet,/bridge\.request\(ENDPOINT, null, envelope/);
   assert.equal((sheet.match(/bridge\.request\(/g)||[]).length,1);
@@ -18,7 +18,7 @@ test("seven-day overview uses one authenticated GET and never requests a model o
 });
 
 test("overview remains a bounded partial seven-natural-day snapshot, not availability", () => {
-  const policy=source(java+"WorkbenchWeekPolicy.java"),sheet=source(java+"NativeWeekSheet.java");
+  const policy=source(java+"WorkbenchWeekPolicy.java"),sheet=source(java+"NativeLegacyWeekSheet.java");
   assert.match(policy,/DAYS = 7, MAX_ROWS = 40/);
   assert.match(policy,/dayStart\(readAt\)/);
   assert.match(policy,/entry\.end <= readAt \|\| entry\.start >= until/);
@@ -50,10 +50,10 @@ test("account, authorization and activity boundaries clear the in-memory overvie
   assert.match(host,/onClosed\(\) \{ weekSheet = null;/);
   assert.match(main,/private void showAuth\(\) \{\s+if \(weekSheet != null\) weekSheet\.close\(\)/);
   assert.match(main,/if\(!accountScope\.equals\(activeDraftScope\)\)\{\s+if \(weekSheet != null\) weekSheet\.close\(\)/);
-  assert.match(sheet,/scopeMatches\(scope, host\.accountScope\(\)\)/);
+  assert.match(sheet,/scopeMatches\(scope,\s*host\.accountScope\(\)\)/);
   assert.match(sheet,/handler\.removeCallbacks\(staleTick\); snapshot = null/);
   assert.match(sheet,/timeline\.removeAllViews\(\)/);
-  assert.match(sheet,/if \(closed \|\| requestRevision != revision\) return/);
+  assert.match(sheet,/if\s*\(closed\s*\|\|\s*requestRevision\s*!=\s*revision\)\s*return/);
 });
 
 test("overview is reachable from both home and schedules and preview metadata is aligned", () => {
@@ -62,9 +62,9 @@ test("overview is reachable from both home and schedules and preview metadata is
   const schedules=main.slice(main.indexOf("private void renderSchedules("),main.indexOf("private void ",main.indexOf("private void renderSchedules(")+20));
   assert.match(quick,/week\.setOnClickListener\(v -> showWeek\(\)\)/);
   assert.match(schedules,/week\.setOnClickListener\(v -> showWeek\(\)\)/);
-  assert.match(source("android/app/build.gradle"),/versionCode 10020/);
-  assert.match(source("android/app/build.gradle"),/versionName "1\.8\.18"/);
-  const notes=source("docs/ANDROID-PREVIEW-RELEASE-1.8.18.md");
+  assert.match(source("android/app/build.gradle"),/versionCode 10021/);
+  assert.match(source("android/app/build.gradle"),/versionName "1\.8\.19"/);
+  const notes=source("docs/ANDROID-PREVIEW-RELEASE-1.8.19.md");
   assert.match(notes,/Phone acceptance is still pending/);
   assert.match(notes,/No private-site deployment/);
   assert.match(notes,/not availability/);

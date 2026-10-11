@@ -36,7 +36,7 @@ final class NativeFeatureCatalog {
             "兼职 打卡 工时 工作 时长"),
         new Entry("records", "生活记录", "写下生活与想法，查看已同步到手机的记录。", "records", true,
             "日记 笔记 记录 文字"),
-        new Entry("schedule", "日程安排", "安排时间、查找与筛选日程，查看计划状态。", "schedule", true,
+        new Entry("schedule", "日程安排", "安排时间、筛选日程；浏览历史与分页，分清计划与实际执行。", "schedule", true,
             "行程 时间表 日历 安排 提醒"),
         new Entry("checkin", "专注打卡", "开始或结束打卡，保存实际投入的时间。", "schedule", true,
             "专注 学习 计时 打卡"),

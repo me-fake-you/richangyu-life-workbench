@@ -760,7 +760,7 @@ public class MainActivity extends AppCompatActivity {
             more.addView(button, params);
         }
         body.addView(more);
-        Button week = secondaryButton("未来 7 天日程总览");
+        Button week = secondaryButton("日程浏览 · 历史与分页");
         week.setOnClickListener(v -> showWeek());
         week.setEnabled(!saving && !syncing && !bindingChanging);
         body.addView(week);
@@ -1106,11 +1106,11 @@ public class MainActivity extends AppCompatActivity {
     private void renderSchedules(LinearLayout body) {
         pageTitle(body, "日程安排", "给重要的事留出时间。日期均按北京时间显示。", "新增日程", this::showScheduleDialog);
         final JSONArray schedules = data.optJSONArray("schedules");
-        Button week = secondaryButton("未来 7 天日程总览");
+        Button week = secondaryButton("日程浏览 · 历史与分页");
         week.setOnClickListener(v -> showWeek());
         week.setEnabled(!saving && !syncing && !bindingChanging);
         body.addView(week);
-        body.addView(text("按天查看后续部分安排，不代表完整日历或空闲时间。", 11, MUTED));
+        body.addView(text("按天查看已保存的安排与执行；新接口支持历史与分页，重复实例范围会单独说明。", 11, MUTED));
         LinearLayout filters = card();
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);

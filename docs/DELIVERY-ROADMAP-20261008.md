@@ -1,127 +1,116 @@
 # Android delivery roadmap
 
-Updated: 2026-10-08
+Updated: 2026-10-11
 Product: Richangyu / Life Workbench
-Status: active, not complete
+Status: implementation in progress; overall delivery is not complete
 
-## Overall outcome
+## Overall goal
 
-Deliver an Android application that directly supports check-ins, records, schedules,
-reviewed AI actions and synchronization with an explicitly bound workbench.
-Preserve private workbench access, signing keys and personal data. Prepare a formally
-signed installable release and store submission materials. Submit for review only
-after the required account, signing and publication authorization is available.
+Deliver a usable native Android life workbench, not a shortcut that requires using
+the website for its advertised core workflows. Preserve the existing private Site,
+personal data and production signing. Work within the user's continuous authorization
+for relevant source reads, staged implementation, checks and preview publication.
 
-Also retain the original security scope: resolve public development-branch dependency
-security alerts and keep the authorized comprehensive checks passing. A prior passing
-check is evidence for that revision only, not for future edits.
+Use the existing unfinished goal. Do not create a duplicate goal, silently resume
+a blocked controller, or mark it achieved merely because an APK compiles.
+Physical phone evidence, an independent multiuser launch and store submission are
+separate outcomes. The existing goal is active; implementation and external
+acceptance must be tracked separately.
 
-A preview APK, an Android compile, a web check or a checklist alone does not establish
-successful phone usage, complete account isolation or app-store availability.
+## Milestones and acceptance gates
 
-## Delivery stages and exit criteria
-
-| Stage | Work | Evidence required to finish | Current state |
+| Milestone | Concrete outcome | Finish evidence | Current state |
 | --- | --- | --- | --- |
-| 1. Phone functionality | Install/update, binding, authorization, check-ins, records, schedules, nutrition, work settlements, AI preview/confirmation, synchronization | Actual phone results for installation, login, saving, reopening and cross-device synchronization; no unresolved data-loss or duplicate-write issue | Preview 1.8.12 exists; real phone acceptance still pending |
-| 2. Usability finish | Clear native feature entries, useful search/date filters, focus hierarchy, readable large text, honest empty/error states, manual acceptance guide | Authorized automated checks and build for the edited revision, plus representative phone screenshots and operation results | Current source iteration implements record filters, focus layout and phone guide; checks/package not yet run |
-| 3. Independent multiuser service | Independent deployment, trusted login identity, per-account workspaces, onboarding, client endpoint coverage and access isolation | A separate deployed service; two controlled accounts prove isolation through supported Android flows | Server foundation exists; deployment, onboarding and Android parity remain unfinished |
-| 4. Formal release and store preparation | Authorized production signing, privacy/deletion documents, accurate screenshots, store-specific materials, installable package and submission | Verified authorized signed package and phone update; complete chosen-store checklist; actual submission receipt | Preview signing is not production signing; formal package and store submission remain pending |
+| 1. Reliable phone core | Binding, login, records, focus, nutrition, schedules, reviewed AI actions, safe sync and update | Phone install/update, real login, save/reopen, cross-device read and uncertain-write recovery | Preview 1.8.18 released; physical acceptance pending |
+| 2. Calendar completeness | History, manual pagination, recurrence coverage, plan versus execution, range changes | Checked endpoint/client, compatible private deployment, phone paging and history evidence | 1.8.19 source introduces stored-occurrence/single-event browsing; recurrence expansion parity remains unfinished |
+| 3. Native ledger and goals | Account/transaction entries, goals/tasks, explicit confirmations, receipts and concurrency checks | Authorized focused tests/build, deployed contract, actual phone create/read/update | Existing work settlements are native; full ledger/goals still web-only |
+| 4. Review and coherent experience | Readable daily/weekly review, consistent entry points, search, loading/errors, accessibility | Checked native views and representative large-font phone screenshots | Existing home and feature map available; native review and UI parity pending |
+| 5. Independent multiuser | Separate service, trusted identity, independent spaces, onboarding, export/deletion | Authorized separate deployment and two controlled accounts proving isolation | Foundation exists; no public registration or deployment claimed |
+| 6. Formal release | Production signing, selected-store materials, privacy/contact/delete flow, submission | Authorized signed package, phone update, required store account and submission receipt | Preview signature only; formal signing and store submission pending |
 
-Plan approximately 4-6 focused development iterations, with phone feedback collected
-alongside implementation. This is a planning estimate, not a promise that store review
-or external account setup completes in a fixed number of iterations.
+The milestones are bounded delivery outcomes, not an unlimited list of invented
+features. Several can be implemented together, but external phone/account/review
+steps cannot be promised to complete in a fixed number of rounds.
 
-## Known released baseline
+## Verified released baseline
 
-- Public repository: https://github.com/me-fake-you/richangyu-life-workbench
+- Repository: https://github.com/me-fake-you/richangyu-life-workbench
 - Development branch: codex/workbench-ai-20261002-c258dd87
-- Last completed source baseline: 57e6af635c4fe6820b3edee6855bb5a57b58b331
-- Public preview: https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.12-preview
-- APK package: com.richangyu.lifeworkbench.preview
-- Version name/code: 1.8.12-preview / 10014
-- Minimum/target Android SDK: 22 / 36
-- APK SHA-256: 6478acf1a3098e943a0c9fc345d15fc002ef9d956c57c0394b91914b0354c864
+- Source head: e5414b2ee4399861a10fa66efd334f7f4f65fe88
+- Preview: https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.18-preview
+- Package/version: com.richangyu.lifeworkbench.preview / 1.8.18-preview / 10020
+- Minimum/target SDK: 22 / 36
+- APK SHA-256: 48c2a400211dbe33351bfc6587adf62b9fb1a89bb31e559f2713b59fc0e09592
 - Preview certificate SHA-256: 3d95f415542ae451b8ba42dce11a2fbc536e72b3264c99280d77efb1dd05f79a
 
-The preceding iteration recorded successful public CI, CodeQL, multiuser foundation
-and Android cloud checks, plus private backend checks and deployment. These are
-historical baseline results, not new test results for this source iteration.
+Baseline evidence: 156 Android unit tests, 17 targeted Node tests and 97 cloud Node
+tests passed; Android/CI/CodeQL workflows succeeded. Android lint retained 43 warnings,
+frontend lint retained 9 warnings. These results do not validate subsequent edits.
+No private Site deployment or physical phone acceptance was completed by that release.
 
-Do not use the Windows non-ASCII-path JUnit runner initialization failure as evidence
-of passing or failing application behavior. The completed baseline used the Linux
-Android workflow for its Android test results.
+## Current source stage: calendar browsing
 
-## Current source iteration
+- Separate calendar GET from AI context. Never widen AI sharing just to browse.
+- Seven Beijing calendar days with previous/next periods and date selection.
+- Read ended-today and historical entries, including long events crossing the boundary.
+- Read 50 rows per manual page, capped at 2,000 rows per period with an explicit
+  capacity error rather than pretending excess data is absent.
+- Freeze pages using a digest of account, range, coverage and all selected stored rows.
+  Any changed content/account/range rejects an old cursor and requires refresh.
+- Preserve stored execution status, actual minutes, reflection and interruption;
+  never infer completed work or payments from a planned duration.
+- Single non-repeating events without an instance are projected without inserting
+  new events, occurrences, audit entries, execution records or model requests.
+- Repeating events are limited to existing generated instances. Unmaterialized
+  recurrence history is not inferred. Full expansion parity is a remaining task,
+  so this stage is not advertised as a complete cloud calendar or availability tool.
+- Data is kept in memory only; binding/auth/account/activity boundaries clear it.
+- A server without the new endpoint offers an explicit legacy-preview button,
+  retaining the earlier bounded 40-row read view.
+- Native render work is capped to 100 visible day entries at a time, with a manual
+  local reveal button. This does not fetch or write additional cloud data.
+- New native screens require a newly installed APK. An interface deployment cannot
+  update an already installed native layout.
 
-Files:
+Current source version: 1.8.19 / 10021. Implementation, checks, private deployment,
+public source publication and phone acceptance must be reported separately.
+A version number or a local debug APK is not proof of a published signed preview.
 
-- android/app/src/main/java/com/richangyu/lifeworkbench/MainActivity.java
-- android/app/src/main/java/com/richangyu/lifeworkbench/WorkbenchRecordPolicy.java
-- docs/ANDROID-PHONE-ACCEPTANCE.md
-- docs/DELIVERY-ROADMAP-20261008.md
+Local verification on 2026-10-11: 165 Android unit tests passed; Android compile,
+debug packaging and lint succeeded (0 errors, 46 warnings). Node checks: 114 total,
+113 passed and one Git-tracking check skipped in the ZIP-extracted workspace.
+Type checking and the web build passed; frontend lint retains nine warnings.
+The public source production audit has zero findings, but the full audit retains
+eight high development-tool findings from unpatched braces 3.0.3:
+https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+Do not interpret the production-only result as complete dependency remediation.
+The private Site has a separate dependency baseline and must be checked separately.
 
-Changes:
+## Continuous authorization and hard boundaries
 
-- Move an active focus check-in ahead of home quick actions.
-- Keep an inactive focus entry compact, with a vertical layout at larger font sizes.
-- Search loaded records by title, content and type, including Chinese type labels.
-- Filter all records, today's records, or the past seven calendar days in Beijing time.
-- Sort and group loaded records by time; retain invalid dates in the all-records view
-  under an explicit time-needs-review heading.
-- Count today's records from the loaded snapshot rather than implying a server-wide
-  total. Empty search results do not imply missing cloud data.
-- Reset record filters when binding or account scope changes.
-- Add an in-app manual phone acceptance guide without exporting private account data.
-- Preserve existing workbench permissions, data and signing.
+Authorized: relevant source rereads, staged edits, focused checks, Android packages,
+preview publication using the existing independent workspace and preview certificate,
+and private interface deployment with the same owner-only audience.
 
-This iteration does not write records automatically, change backend access, enable
-public registration, alter signing, bump the version or publish a new APK.
-Source changes are not visible in an already installed APK.
+Separate human decisions remain required for public multiuser launch, paid resources,
+production signing and actual app-store submission. Never copy the private database,
+photos, tokens, secrets or signing keys into the public repository or new service.
 
-## Validation and publication gate
+Use branch-head leases and immutable previews. Preserve unrelated changes. Disclose
+newly discovered authored bugs before repairing them under the editing constraints.
+Do not replace phone acceptance with browser checks or describe pending checks as passed.
 
-The implementation request authorizes source work. This iteration separately requested
-permission for targeted checks, packaging and preview publication; wait for the human
-answer before those actions. Do not treat an unanswered suggested answer as consent.
+## Remaining inputs and blockers
 
-After approval:
+- Physical Android installation/update, authorization and cross-device operation results.
+- Canonical recurrence expansion/history parity before claiming a complete calendar.
+- Native ledger, goals and review endpoint/client delivery.
+- Independent service deployment target and controlled second-account configuration.
+- Chosen store, developer account, privacy contact/delete-request channel and production-signing authorization.
+- Sites source access and publication transport must succeed before any private
+  deployment is claimed; a transient connection failure must not alter the old Site.
+- Comprehensive dependency security checks still belong to the overall goal.
+  A zero production audit does not establish zero development-tool vulnerabilities.
 
-1. Add and run focused record policy tests for search, Beijing day/week boundaries,
-   invalid timestamps, stable sorting, null input and device timezone independence.
-2. Run the applicable authorized Android unit, compilation and compatibility checks.
-3. Advance preview version/code without overwriting an existing immutable release.
-4. Use the existing preview certificate and expected branch head; do not access or
-   replace the production signing key.
-5. Publish only after the required checks succeed; report exact release evidence.
-6. Collect actual phone acceptance separately using ANDROID-PHONE-ACCEPTANCE.md.
-
-## Scope and privacy boundaries
-
-- The private workbench remains private. Other people cannot be granted access to
-  the owner's data simply by distributing the APK.
-- Public multiuser access requires an independent service and verified account
-  isolation. Its server foundation is not equivalent to an available public product.
-- Local drafts are account/origin-scoped and require explicit submission. Do not
-  advertise complete offline support.
-- AI changes require preview review and human confirmation. Calorie estimation is
-  an estimate to review, not a medical or nutritional measurement.
-- Work duration, receivable and actual received payment must remain distinct.
-  Never create fake payments solely to complete a test.
-- Advanced web-only features must be labeled as such instead of claiming Android parity.
-- Cloud/backend updates only reach compatible clients. Native screen changes require
-  a newly installed APK.
-- Store acceptance is decided by the selected store, not by a local checklist.
-
-## Remaining external evidence and inputs
-
-- Phone model, Android version, installed App version and redacted operation evidence.
-- Installation, login, update and same-workbench synchronization results.
-- Independent multiuser deployment target and authorized account/login configuration.
-- Chosen application store and required developer account information.
-- Authorized production signing and the store's current publication requirements.
-- Actual submission receipt and subsequent review outcome.
-
-Keep the overall goal active while meaningful authorized work can continue. Mark it
-complete only when the original full outcome, including required real-world evidence
-and authorized submission, has actually been achieved.
+Mark each item implemented, checked, published and phone-accepted separately.
+Only mark the overall goal achieved when its required outcomes actually exist.

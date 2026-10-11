@@ -58,5 +58,5 @@ test("reminder preview version and release notes remain aligned", () => {
   assert.match(workflow, /:app:lintDebug/);
   assert.match(notes, /Phone acceptance is still pending/);
   assert.match(notes, /No private-site deployment/);
-  assert.match(source(java + "NativePrivacySheet.java"), /2026-10-09/);
+  assert.match(source(java + "NativePrivacySheet.java"), /2026-10-11/);
 });
