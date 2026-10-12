@@ -78,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private String pendingReminderKey = "";
     private NativeAiSheet aiSheet;
     private NativeWeekSheet weekSheet;
+    private NativeTaskSheet taskSheet;
     private NativeWorkSheet workSheet;
     private NativeDraftSheet draftSheet;
     private NativeDraftStore drafts;
@@ -784,7 +785,7 @@ public class MainActivity extends AppCompatActivity {
     private void openHomeAction(String key) {
         if ("drafts".equals(key)) { showDrafts(); return; }
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
-            || aiSheet != null || nutritionSheet != null) {
+            || aiSheet != null || taskSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -917,7 +918,7 @@ public class MainActivity extends AppCompatActivity {
     private void openFeature(NativeFeatureCatalog.Entry feature) {
         if (!feature.nativeInApp) { showWebFeatureInfo(feature); return; }
         if ("drafts".equals(feature.key)) { showDrafts(); return; }
-        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || nutritionSheet != null) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -929,10 +930,11 @@ public class MainActivity extends AppCompatActivity {
         else if ("checkin".equals(feature.key)) openFeatureCheckin("专注打卡");
         else if ("capture".equals(feature.key)) showInboxDialog();
         else if ("ai".equals(feature.key)) showAi();
+        else if ("tasks".equals(feature.key)) showTasks();
     }
 
     private void openFeatureCheckin(String initialTitle) {
-        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || nutritionSheet != null) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1984,7 +1986,7 @@ public class MainActivity extends AppCompatActivity {
         } catch(Exception error){Toast.makeText(this,error.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void showDrafts() {
-        if(draftSheet!=null||workSheet!=null||aiSheet!=null||nutritionSheet!=null||saving||bindingChanging)return;
+        if(draftSheet!=null||workSheet!=null||aiSheet!=null||taskSheet!=null||nutritionSheet!=null||saving||bindingChanging)return;
         if(drafts==null||activeDraftScope.isEmpty()){Toast.makeText(this,"请先完成一次工作台登录，再使用账号隔离的本机草稿。",Toast.LENGTH_LONG).show();return;}
         final String scope=activeDraftScope;
         draftSheet=new NativeDraftSheet(this,mobileApi,baseUrl,drafts,new NativeDraftSheet.Host(){
@@ -1999,7 +2001,7 @@ public class MainActivity extends AppCompatActivity {
         });draftSheet.show();
     }
     private void showWork() {
-        if(workSheet!=null||draftSheet!=null||aiSheet!=null||nutritionSheet!=null||saving||syncing||bindingChanging)return;
+        if(workSheet!=null||draftSheet!=null||aiSheet!=null||taskSheet!=null||nutritionSheet!=null||saving||syncing||bindingChanging)return;
         if(!bridgeReady||data==null||activeDraftScope.isEmpty()){showAuth();return;}
         workSheet=new NativeWorkSheet(this,mobileApi,baseUrl,activeDraftScope,new NativeWorkSheet.Host(){
             @Override public boolean writesBlocked(){return saveOutcomeUnknown||saving||bindingChanging;}
@@ -2133,6 +2135,7 @@ public class MainActivity extends AppCompatActivity {
                 if(accountScope.isEmpty())throw new IllegalArgumentException("account missing");
                 if(!accountScope.equals(activeDraftScope)){
                     if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
                     dismissReminderEditor();
                     lastWriteRejectedScope = "";
                     resetScheduleFilters();
@@ -2237,8 +2240,31 @@ public class MainActivity extends AppCompatActivity {
         getSharedPreferences("native_workbench", MODE_PRIVATE).edit().putBoolean("save_outcome_unknown", value).apply();
     }
 
+    private void showTasks() {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null ||
+            aiSheet != null || nutritionSheet != null || weekSheet != null || taskSheet != null) return;
+        if (!bridgeReady || data == null || activeDraftScope.isEmpty()) { showAuth(); return; }
+        if (!homeReadSucceeded) {
+            sync(); Toast.makeText(this, "先重新读取工作台，成功后再打开任务中心。", Toast.LENGTH_SHORT).show(); return;
+        }
+        final String scope = activeDraftScope;
+        taskSheet = new NativeTaskSheet(this, mobileApi, baseUrl, new NativeTaskSheet.Host() {
+            @Override public String accountScope() { return activeDraftScope; }
+            @Override public boolean readsAllowed() {
+                return bridgeReady && homeReadSucceeded && !saving && !syncing && !bindingChanging
+                    && scope.equals(activeDraftScope);
+            }
+            @Override public void onAuthRequired() {
+                if (taskSheet != null) taskSheet.close();
+                homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
+            }
+            @Override public void onClosed() { taskSheet = null; }
+        });
+        taskSheet.show();
+    }
+
     private void showNutrition() {
-        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null) {
+        if (saving || syncing || bindingChanging || taskSheet != null || workSheet != null || draftSheet != null || aiSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或 AI 页面。", Toast.LENGTH_SHORT).show(); return;
         }
         if (!bridgeReady || data == null) { showAuth(); return; }
@@ -2258,7 +2284,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showWeek() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
-            || aiSheet != null || nutritionSheet != null) {
+            || aiSheet != null || taskSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先等待当前连接或关闭其他页面。", Toast.LENGTH_SHORT).show(); return;
         }
         if (weekSheet != null) return;
@@ -2275,6 +2301,7 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onAuthRequired() {
                 if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
             }
             @Override public void onClosed() { weekSheet = null; }
@@ -2285,7 +2312,7 @@ public class MainActivity extends AppCompatActivity {
     private void showAi() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
-        if (aiSheet != null || nutritionSheet != null || weekSheet != null) return;
+        if (aiSheet != null || taskSheet != null || nutritionSheet != null || weekSheet != null) return;
         final String scope=activeDraftScope;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || syncing || bindingChanging
@@ -2294,6 +2321,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAuthRequired() {
                 if (aiSheet != null) aiSheet.close();
                 if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
                 homeReadSucceeded=false;invalidateLocalReminders();showAuth();
             }
             @Override public void onSaved() { recordSyncReceipt(scope);sync(); }
@@ -2410,6 +2438,7 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
         if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
         bridgeReady = false; mobileApi.close();
         if (authWebView != null) {
             authWebView.stopLoading(); detach(authWebView); authWebView.destroy(); authWebView = null;
@@ -2438,6 +2467,7 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void showAuth() {
         if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
         if (bindingChanging) return;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
@@ -2496,6 +2526,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                     if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
                     connectionDiagnosticState = "authorization";
                     bridgeReady = false; mobileApi.cancelPending();
                 }
@@ -2597,7 +2628,7 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume(); clockHandler.removeCallbacks(clockTick); clockHandler.post(clockTick);
         if (data != null && bridgeReady && !saving && reminderDialog == null && (aiSheet == null || !aiSheet.isBusy())
-            && (nutritionSheet == null || !nutritionSheet.isBusy())) sync();
+            && taskSheet == null && (nutritionSheet == null || !nutritionSheet.isBusy())) sync();
     }
     @Override protected void onPause() {
         clockHandler.removeCallbacks(clockTick); super.onPause();
@@ -2613,6 +2644,7 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionPhotoPicker != null) nutritionPhotoPicker.close();
         if (aiSheet != null) aiSheet.close();
         if (weekSheet != null) weekSheet.close();
+                    if (taskSheet != null) taskSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();

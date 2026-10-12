@@ -35,6 +35,12 @@ public class WorkbenchClientPolicyTest {
             assertFalse(WorkbenchClientPolicy.allowsEndpoint(value, false));
         }
     }
+    @Test public void tasksAreReadOnlyAndCannotAcceptOwnerQueries() {
+        assertTrue(WorkbenchClientPolicy.allowsEndpoint("/api/mobile-tasks", false));
+        assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/mobile-tasks", true));
+        assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/mobile-tasks?email=x", false));
+        assertFalse(WorkbenchClientPolicy.allowsEndpoint("/api/mobile-tasks/", false));
+    }
     @Test public void financeConsentCoversChineseAndCurrencyAmounts() {
         for (String value : new String[] {"\u6536\u5165", "\u5de5\u8d44\u5230\u8d26", "\u517c\u804c\u8d5a\u4e86200", "30\u5143", "20 \u5757\u94b1", "\uffe530", "\u00a530", "\u5e94\u6536\u6b3e"}) {
             assertTrue(value, WorkbenchClientPolicy.needsFinancialConsent(value));

@@ -3,7 +3,7 @@
 [English](./README.en.md) · [三分钟产品讲解](#三分钟产品讲解) · [图文使用指南](./docs/usage-guide.md) · [本地运行](#本地运行) · [独立部署](./docs/deployment-cloudflare.md) · [参与贡献](./CONTRIBUTING.md)
 
 [![Web version](https://img.shields.io/badge/web-1.5.0-69756f)](./CHANGELOG.md)
-[![Android preview](https://img.shields.io/badge/android-1.8.12--preview-235844)](https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.12-preview)
+[![Android preview](https://img.shields.io/badge/android-native--preview-235844)](https://github.com/me-fake-you/richangyu-life-workbench/releases)
 [![License](https://img.shields.io/badge/license-MIT-2f855a)](./LICENSE)
 ![PWA](https://img.shields.io/badge/PWA-installable-6f4d83)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Cloudflare-f38020)
@@ -17,17 +17,17 @@
 
 已有可下载的原生安卓预览包，不必把安装到主屏幕的网页当作 APK。
 
-- [下载 1.8.12-preview APK](https://github.com/me-fake-you/richangyu-life-workbench/releases/download/v1.8.12-preview/life-workbench-v1.8.12-preview.apk)
-- [发布说明与校验信息](https://github.com/me-fake-you/richangyu-life-workbench/releases/tag/v1.8.12-preview)
+- [下载已发布的安卓预览 APK](https://github.com/me-fake-you/richangyu-life-workbench/releases)
+- [发布说明与校验信息](https://github.com/me-fake-you/richangyu-life-workbench/releases)
 - [手机实测步骤](./docs/ANDROID-PHONE-ACCEPTANCE.md)
-- [总体交付计划](./docs/DELIVERY-ROADMAP-20261008.md)
+- [总体交付计划](./docs/UPGRADE-MASTER-PLAN-20261012.md)
 - [数据与隐私](./docs/data-and-privacy.md) · [正式发布准备](./docs/ANDROID-STORE-PREPARATION-20261003.md)
 
 App 内可使用打卡、记录、日程、热量与饮食、兼职结算和 AI 预览确认，并绑定自己的兼容 HTTPS 工作台。网页组件用于登录授权，读取成功后回到原生页面。高级网页版功能与原生入口并不完全相同，详见[功能入口说明](./docs/ANDROID-FEATURE-NAVIGATION.md)。
 
 当前仍是预览版，尚未完成用户手机验收、正式商店签名或商店上架。独立多人服务已有基础源码，但尚未开放公共注册；不要邀请别人进入私人工作台试用。已有安装包不会自动获得后续源码中的界面改动，原生升级需要安装新 APK。
 
-本轮记录搜索、首页布局及隐私入口改动尚未打包发布，不属于上述 1.8.12 下载包。
+当前分支原生工程版本为 1.8.20-preview，新增只读任务中心；实际下载以 Releases 成功发布的 APK 为准。任务编辑和目标管理仍在网页版，不把代码存在等同于手机实测成功。
 
 ## 三分钟产品讲解
 
@@ -142,7 +142,7 @@ flowchart LR
 | 情报、研究与求职 | 🧪 | 公开来源读取可用；AI 提炼、定时刷新与部分来源依赖部署配置 |
 | AI 总结与生活问询 | 🧪 | 需要文字模型；结果保留来源，写入前由用户确认 |
 | PWA 与离线队列 | ✅ | 可安装到主屏幕；离线队列不是长期备份 |
-| 安卓原生客户端 | 预览 | 已有 1.8.12 下载包，仍待真机验收及正式发布，不等同于网页版完整覆盖 |
+| 安卓原生客户端 | 预览 | 已有预览下载，当前分支新增任务只读页面；仍待真机验收及正式发布，不等同于网页版完整覆盖 |
 | 多人服务与插件市场 | 计划 / 基础 | 多人账号隔离基础已有，独立部署、公开登录与安卓覆盖仍待完成；插件市场不在稳定承诺内 |
 
 ## 四个典型使用场景
@@ -196,6 +196,15 @@ npm run dev
 ## AI 配置
 
 密钥只写入 `.env.local`，该文件已被 Git 忽略。
+
+手机 AI 助手的本次主线沿用 Groq，密钥只放服务端：
+
+```env
+GROQ_API_KEY=你的服务端密钥
+GROQ_MODEL=openai/gpt-oss-120b
+```
+
+这是配置示例，不含真实密钥。免费额度以 Groq 账户控制台为准，不承诺无限或账户已关闭计费；达到限制后等待并手动重试，不自动切换付费模型。图片模型需另行显式配置。其他 AI 模块仍按原有提供商配置工作。
 
 NVIDIA 的文字与视觉模型可以使用两把不同的密钥：
 
@@ -309,7 +318,7 @@ npm run validate
 
 ## 项目状态
 
-网页版稳定说明为 `v1.5.0`；安卓另有 `1.8.12-preview`，不混用版本或成熟度。本轮安卓界面与隐私入口源码尚未发布。网页版移动优先能力包括：在长期可靠性和简洁工作台基础上，加入六项快捷记录、可配置底部入口、相机/语音直达、离线重开、可见同步状态、手机通知设置、后台隐私锁定和按需加载。
+网页版稳定说明为 `v1.5.0`；当前分支安卓工程为 `1.8.20-preview`，成功发布的 APK 请到 Releases 查看，不混用网页版本、源码版本和已下载包。网页版移动优先能力包括：在长期可靠性和简洁工作台基础上，加入六项快捷记录、可配置底部入口、相机/语音直达、离线重开、可见同步状态、手机通知设置、后台隐私锁定和按需加载。
 
 下一阶段仍值得升级，但重点不应继续堆叠新模块，而应优先提高“长期真的敢用”的程度：
 

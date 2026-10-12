@@ -47,6 +47,8 @@ final class NativeFeatureCatalog {
 
         new Entry("drafts", "本机草稿", "离线保存文字与日程，联网后逐条确认提交；不会自动上传。", "inbox", true,
             "离线 草稿 同步 恢复"),
+        new Entry("tasks", "任务中心", "在 App 内查看、搜索与筛选任务；编辑任务与目标管理仍在网页版。", "schedule", true,
+            "任务 待办 截止 今日重点 逾期 优先级"),
         new Entry("finance", "财务与账本", "账户、预算和完整收支管理尚未迁移为原生页面。", "records", false,
             "记账 财务 收入 支出 钱 预算"),
         new Entry("settlement", "兼职项目与结算", "查看待结算项目，按实际到账金额分次收款；完整账本仍在网页版。", "schedule", true,
@@ -59,7 +61,7 @@ final class NativeFeatureCatalog {
             "情报 资讯 新闻 热点 研究 求职"),
         new Entry("review", "总结与回顾", "完整日周月回顾和计划实际分析仍在网页版。", "records", false,
             "回顾 总结 周报 月报"),
-        new Entry("tasks", "任务与目标", "完整任务中心和目标管理仍在网页版；日程可在 App 内安排。", "schedule", false,
+        new Entry("goals", "目标管理", "目标规划与进度管理仍在网页版；任务只读列表已可在 App 内查看。", "schedule", false,
             "任务 待办 目标"),
         new Entry("backup", "备份与恢复", "数据健康、云端快照和恢复操作仍在网页版。", "me", false,
             "备份 恢复 导入 导出"),
