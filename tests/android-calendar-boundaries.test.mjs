@@ -1,4 +1,5 @@
 import test from "node:test";
+import { assertPreviewMetadata } from "./android-preview-metadata.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const java="android/app/src/main/java/com/richangyu/lifeworkbench/";
@@ -44,7 +45,5 @@ test("boundaries clear native data and preserve existing signing configuration",
  assert.match(sheet,/handler.removeCallbacks\(staleTick\); snapshot = null/);
  assert.match(sheet,/timeline.removeAllViews\(\)/);
  assert.match(main,/if \(weekSheet != null\) weekSheet.close\(\)/);
- assert.match(source("android/app/build.gradle"),/versionCode 10021/);
- assert.match(source("android/app/build.gradle"),/versionName "1\.8\.19"/);
- assert.match(source(".github/workflows/android-native-preview.yml"),/versionCode='10021'.*versionName='1\.8\.19-preview'/);
+ assertPreviewMetadata(source);
 });

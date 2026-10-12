@@ -1,4 +1,5 @@
 import test from "node:test";
+import { assertPreviewMetadata } from "./android-preview-metadata.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const java = "android/app/src/main/java/com/richangyu/lifeworkbench/";
@@ -62,8 +63,7 @@ test("overview is reachable from both home and schedules and preview metadata is
   const schedules=main.slice(main.indexOf("private void renderSchedules("),main.indexOf("private void ",main.indexOf("private void renderSchedules(")+20));
   assert.match(quick,/week\.setOnClickListener\(v -> showWeek\(\)\)/);
   assert.match(schedules,/week\.setOnClickListener\(v -> showWeek\(\)\)/);
-  assert.match(source("android/app/build.gradle"),/versionCode 10021/);
-  assert.match(source("android/app/build.gradle"),/versionName "1\.8\.19"/);
+  assertPreviewMetadata(source);
   const notes=source("docs/ANDROID-PREVIEW-RELEASE-1.8.19.md");
   assert.match(notes,/Phone acceptance is still pending/);
   assert.match(notes,/No private-site deployment/);

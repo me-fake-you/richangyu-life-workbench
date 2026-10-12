@@ -2301,7 +2301,7 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onAuthRequired() {
                 if (weekSheet != null) weekSheet.close();
-                    if (taskSheet != null) taskSheet.close();
+                if (taskSheet != null) taskSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
             }
             @Override public void onClosed() { weekSheet = null; }
@@ -2321,7 +2321,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAuthRequired() {
                 if (aiSheet != null) aiSheet.close();
                 if (weekSheet != null) weekSheet.close();
-                    if (taskSheet != null) taskSheet.close();
+                if (taskSheet != null) taskSheet.close();
                 homeReadSucceeded=false;invalidateLocalReminders();showAuth();
             }
             @Override public void onSaved() { recordSyncReceipt(scope);sync(); }
@@ -2438,7 +2438,7 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionSheet != null) nutritionSheet.close();
         if (aiSheet != null) aiSheet.close();
         if (weekSheet != null) weekSheet.close();
-                    if (taskSheet != null) taskSheet.close();
+        if (taskSheet != null) taskSheet.close();
         bridgeReady = false; mobileApi.close();
         if (authWebView != null) {
             authWebView.stopLoading(); detach(authWebView); authWebView.destroy(); authWebView = null;
@@ -2467,7 +2467,7 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void showAuth() {
         if (weekSheet != null) weekSheet.close();
-                    if (taskSheet != null) taskSheet.close();
+        if (taskSheet != null) taskSheet.close();
         if (bindingChanging) return;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
@@ -2644,7 +2644,7 @@ public class MainActivity extends AppCompatActivity {
         if (nutritionPhotoPicker != null) nutritionPhotoPicker.close();
         if (aiSheet != null) aiSheet.close();
         if (weekSheet != null) weekSheet.close();
-                    if (taskSheet != null) taskSheet.close();
+        if (taskSheet != null) taskSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();

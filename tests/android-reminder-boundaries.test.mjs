@@ -1,4 +1,5 @@
 import test from "node:test";
+import { assertPreviewMetadata } from "./android-preview-metadata.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const java = "android/app/src/main/java/com/richangyu/lifeworkbench/";
@@ -46,17 +47,9 @@ test("native UI validates current snapshot and clears reminders at account bound
 });
 
 test("reminder preview version and release notes remain aligned", () => {
-  const gradle = source("android/app/build.gradle");
-  const workflow = source(".github/workflows/android-native-preview.yml");
-  const version = /versionName "([0-9.]+)"/.exec(gradle)?.[1];
-  const code = /versionCode ([0-9]+)/.exec(gradle)?.[1];
-  assert.ok(version && code, "native version metadata is required");
-  const notes = source("docs/ANDROID-PREVIEW-RELEASE-" + version + ".md");
-  assert.ok(workflow.includes("versionCode='" + code + "'"));
-  assert.ok(workflow.includes("versionName='" + version + "-preview'"));
-  assert.match(workflow, /RICHANGYU_ANDROID_PREVIEW_CERT_SHA256/);
-  assert.match(workflow, /:app:lintDebug/);
-  assert.match(notes, /Phone acceptance is still pending/);
-  assert.match(notes, /No private-site deployment/);
+  const { notes } = assertPreviewMetadata(source);
+  assert.match(notes, /Phone acceptance is still pending|仍待用户实测/u);
+  assert.match(notes, /不更改正式签名/u);
+  assert.match(notes, /不创建、删除、完成或修改任务/u);
   assert.match(source(java + "NativePrivacySheet.java"), /2026-10-11/);
 });

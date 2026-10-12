@@ -127,6 +127,22 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Require complete CI success before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          for attempt in $(seq 1 30); do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=10" \
+              --jq '.workflow_runs | sort_by(.id) | last | if . == null or .status != "completed" then "pending" else .conclusion end')
+            if [ "$conclusion" = "success" ]; then ready=true; break; fi
+            if [ "$conclusion" != "pending" ]; then
+              echo "Complete CI did not pass; the preview will not be published."
+              exit 1
+            fi
+            sleep 5
+          done
+          [ "$ready" = "true" ] || { echo "Complete CI is still pending; publication stopped safely."; exit 1; }
       - name: Download tested preview
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-native-preview-1.8.20 --dir preview
       - name: Publish immutable prerelease, never overwrite a signature
