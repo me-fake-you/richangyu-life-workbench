@@ -80,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
     private NativeWeekSheet weekSheet;
     private NativeTaskSheet taskSheet;
     private NativeLifeDataSheet lifeDataSheet;
+    private NativeManagementSheet managementSheet;
     private NativeWorkSheet workSheet;
     private NativeDraftSheet draftSheet;
     private NativeDraftStore drafts;
@@ -584,6 +585,12 @@ public class MainActivity extends AppCompatActivity {
             Button checkLedger = secondaryButton("去账本核对原提交");
             checkLedger.setOnClickListener(v -> showLifeData("finance")); ledger.addView(checkLedger); body.addView(ledger);
         }
+        if (activeDraftScope.matches("[0-9a-f]{64}") && new NativeManagementStore(this, activeDraftScope).hasPending()) {
+            LinearLayout management = card();
+            management.addView(text("有一笔目标或财务管理提交待核对，不会自动重发。", 13, ROSE));
+            Button recoverManagement = secondaryButton("核对管理原提交");
+            recoverManagement.setOnClickListener(v -> showManagement("goal")); management.addView(recoverManagement); body.addView(management);
+        }
         Button back = secondaryButton("返回首页");
         back.setOnClickListener(v -> selectTab("home"));
         body.addView(back);
@@ -835,7 +842,7 @@ public class MainActivity extends AppCompatActivity {
     private void openHomeAction(String key) {
         if ("drafts".equals(key)) { showDrafts(); return; }
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
-            || aiSheet != null || taskSheet != null || lifeDataSheet != null || nutritionSheet != null) {
+            || aiSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -969,7 +976,7 @@ public class MainActivity extends AppCompatActivity {
     private void openFeature(NativeFeatureCatalog.Entry feature) {
         if (!feature.nativeInApp) { showWebFeatureInfo(feature); return; }
         if ("drafts".equals(feature.key)) { showDrafts(); return; }
-        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || lifeDataSheet != null || nutritionSheet != null) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -982,11 +989,12 @@ public class MainActivity extends AppCompatActivity {
         else if ("capture".equals(feature.key)) showInboxDialog();
         else if ("ai".equals(feature.key)) showAi();
         else if ("tasks".equals(feature.key)) showTasks();
-        else if ("finance".equals(feature.key) || "goals".equals(feature.key) || "review".equals(feature.key)) showLifeData(feature.key);
+        else if ("goals".equals(feature.key)) showManagement("goal");
+        else if ("finance".equals(feature.key) || "review".equals(feature.key)) showLifeData(feature.key);
     }
 
     private void openFeatureCheckin(String initialTitle) {
-        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || lifeDataSheet != null || nutritionSheet != null) {
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或弹出页面。", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -2042,7 +2050,7 @@ public class MainActivity extends AppCompatActivity {
         } catch(Exception error){Toast.makeText(this,error.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void showDrafts() {
-        if(draftSheet!=null||workSheet!=null||aiSheet!=null||taskSheet!=null||lifeDataSheet!=null||nutritionSheet!=null||saving||bindingChanging)return;
+        if(draftSheet!=null||workSheet!=null||aiSheet!=null||taskSheet!=null||lifeDataSheet!=null||managementSheet!=null||nutritionSheet!=null||saving||bindingChanging)return;
         if(drafts==null||activeDraftScope.isEmpty()){Toast.makeText(this,"请先完成一次工作台登录，再使用账号隔离的本机草稿。",Toast.LENGTH_LONG).show();return;}
         final String scope=activeDraftScope;
         draftSheet=new NativeDraftSheet(this,mobileApi,baseUrl,drafts,new NativeDraftSheet.Host(){
@@ -2057,7 +2065,7 @@ public class MainActivity extends AppCompatActivity {
         });draftSheet.show();
     }
     private void showWork() {
-        if(workSheet!=null||draftSheet!=null||aiSheet!=null||taskSheet!=null||lifeDataSheet!=null||nutritionSheet!=null||saving||syncing||bindingChanging)return;
+        if(workSheet!=null||draftSheet!=null||aiSheet!=null||taskSheet!=null||lifeDataSheet!=null||managementSheet!=null||nutritionSheet!=null||saving||syncing||bindingChanging)return;
         if(!bridgeReady||data==null||activeDraftScope.isEmpty()){showAuth();return;}
         workSheet=new NativeWorkSheet(this,mobileApi,baseUrl,activeDraftScope,new NativeWorkSheet.Host(){
             @Override public boolean writesBlocked(){return saveOutcomeUnknown||saving||bindingChanging;}
@@ -2193,6 +2201,7 @@ public class MainActivity extends AppCompatActivity {
                     if (weekSheet != null) weekSheet.close();
                     if (taskSheet != null) taskSheet.close();
                     if (lifeDataSheet != null) lifeDataSheet.close();
+                    if (managementSheet != null) managementSheet.close();
                     dismissReminderEditor();
                     lastWriteRejectedScope = "";
                     resetScheduleFilters();
@@ -2297,9 +2306,38 @@ public class MainActivity extends AppCompatActivity {
         getSharedPreferences("native_workbench", MODE_PRIVATE).edit().putBoolean("save_outcome_unknown", value).apply();
     }
 
+    private void showManagement(String section) {
+        if (!WorkbenchManagementPolicy.section(section)) return;
+        if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null || aiSheet != null ||
+            nutritionSheet != null || weekSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null) return;
+        if (!bridgeReady || data == null || activeDraftScope.isEmpty()) { showAuth(); return; }
+        if (!homeReadSucceeded) {
+            sync(); Toast.makeText(this, "先重新读取工作台，成功后再打开管理页面。", Toast.LENGTH_SHORT).show(); return;
+        }
+        final String scope = activeDraftScope;
+        managementSheet = new NativeManagementSheet(this, mobileApi, baseUrl, section, new NativeManagementSheet.Host() {
+            @Override public String accountScope() { return activeDraftScope; }
+            @Override public boolean readsAllowed() {
+                return bridgeReady && homeReadSucceeded && !saving && !syncing && !bindingChanging && scope.equals(activeDraftScope);
+            }
+            @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || bindingChanging; }
+            @Override public void onSaved() { recordSyncReceipt(scope); }
+            @Override public void onAuthRequired() {
+                if (managementSheet != null) managementSheet.close();
+                homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
+            }
+            @Override public void onClosed() { managementSheet = null; }
+            @Override public void onNavigate(String nextSection) {
+                if (managementSheet != null) managementSheet.close();
+                showManagement(nextSection);
+            }
+        });
+        managementSheet.show();
+    }
+
     private void showLifeData(String kind) {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null ||
-            aiSheet != null || nutritionSheet != null || weekSheet != null || taskSheet != null || lifeDataSheet != null) return;
+            aiSheet != null || nutritionSheet != null || weekSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null) return;
         if (!bridgeReady || data == null || activeDraftScope.isEmpty()) { showAuth(); return; }
         if (!homeReadSucceeded) {
             sync(); Toast.makeText(this, "先重新读取工作台，成功后再打开数据页面。", Toast.LENGTH_SHORT).show(); return;
@@ -2314,16 +2352,21 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onSaved() { recordSyncReceipt(scope); }
             @Override public void onAuthRequired() {
                 if (lifeDataSheet != null) lifeDataSheet.close();
+                if (managementSheet != null) managementSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
             }
             @Override public void onClosed() { lifeDataSheet = null; }
+            @Override public void onManage(String section) {
+                if (lifeDataSheet != null) lifeDataSheet.close();
+                showManagement(section);
+            }
         });
         lifeDataSheet.show();
     }
 
     private void showTasks() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null ||
-            aiSheet != null || nutritionSheet != null || weekSheet != null || taskSheet != null || lifeDataSheet != null) return;
+            aiSheet != null || nutritionSheet != null || weekSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null) return;
         if (!bridgeReady || data == null || activeDraftScope.isEmpty()) { showAuth(); return; }
         if (!homeReadSucceeded) {
             sync(); Toast.makeText(this, "先重新读取工作台，成功后再打开任务中心。", Toast.LENGTH_SHORT).show(); return;
@@ -2340,6 +2383,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAuthRequired() {
                 if (taskSheet != null) taskSheet.close();
                 if (lifeDataSheet != null) lifeDataSheet.close();
+                if (managementSheet != null) managementSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
             }
             @Override public void onClosed() { taskSheet = null; }
@@ -2348,7 +2392,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showNutrition() {
-        if (saving || syncing || bindingChanging || taskSheet != null || lifeDataSheet != null || workSheet != null || draftSheet != null || aiSheet != null) {
+        if (saving || syncing || bindingChanging || taskSheet != null || lifeDataSheet != null || managementSheet != null || workSheet != null || draftSheet != null || aiSheet != null) {
             Toast.makeText(this, "请先结束当前连接、保存或 AI 页面。", Toast.LENGTH_SHORT).show(); return;
         }
         if (!bridgeReady || data == null) { showAuth(); return; }
@@ -2368,7 +2412,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showWeek() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null
-            || aiSheet != null || taskSheet != null || lifeDataSheet != null || nutritionSheet != null) {
+            || aiSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null || nutritionSheet != null) {
             Toast.makeText(this, "请先等待当前连接或关闭其他页面。", Toast.LENGTH_SHORT).show(); return;
         }
         if (weekSheet != null) return;
@@ -2387,6 +2431,7 @@ public class MainActivity extends AppCompatActivity {
                 if (weekSheet != null) weekSheet.close();
                 if (taskSheet != null) taskSheet.close();
                 if (lifeDataSheet != null) lifeDataSheet.close();
+                if (managementSheet != null) managementSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
             }
             @Override public void onClosed() { weekSheet = null; }
@@ -2397,7 +2442,7 @@ public class MainActivity extends AppCompatActivity {
     private void showAi() {
         if (saving || syncing || bindingChanging || workSheet != null || draftSheet != null) { Toast.makeText(this, "请先等待当前连接或保存完成。", Toast.LENGTH_SHORT).show(); return; }
         if (!bridgeReady || data == null) { showAuth(); return; }
-        if (aiSheet != null || taskSheet != null || lifeDataSheet != null || nutritionSheet != null || weekSheet != null) return;
+        if (aiSheet != null || taskSheet != null || lifeDataSheet != null || managementSheet != null || nutritionSheet != null || weekSheet != null) return;
         final String scope=activeDraftScope;
         aiSheet = new NativeAiSheet(this, mobileApi, new NativeAiSheet.Host() {
             @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || syncing || bindingChanging
@@ -2408,6 +2453,7 @@ public class MainActivity extends AppCompatActivity {
                 if (weekSheet != null) weekSheet.close();
                 if (taskSheet != null) taskSheet.close();
                 if (lifeDataSheet != null) lifeDataSheet.close();
+                if (managementSheet != null) managementSheet.close();
                 homeReadSucceeded=false;invalidateLocalReminders();showAuth();
             }
             @Override public void onSaved() { recordSyncReceipt(scope);sync(); }
@@ -2526,6 +2572,7 @@ public class MainActivity extends AppCompatActivity {
         if (weekSheet != null) weekSheet.close();
         if (taskSheet != null) taskSheet.close();
         if (lifeDataSheet != null) lifeDataSheet.close();
+        if (managementSheet != null) managementSheet.close();
         bridgeReady = false; mobileApi.close();
         if (authWebView != null) {
             authWebView.stopLoading(); detach(authWebView); authWebView.destroy(); authWebView = null;
@@ -2556,6 +2603,7 @@ public class MainActivity extends AppCompatActivity {
         if (weekSheet != null) weekSheet.close();
         if (taskSheet != null) taskSheet.close();
         if (lifeDataSheet != null) lifeDataSheet.close();
+        if (managementSheet != null) managementSheet.close();
         if (bindingChanging) return;
         if (baseUrl.isEmpty()) { showBindingWelcome(); return; }
         if (root.findViewWithTag("auth-overlay") != null) return;
@@ -2616,6 +2664,7 @@ public class MainActivity extends AppCompatActivity {
                     if (weekSheet != null) weekSheet.close();
                     if (taskSheet != null) taskSheet.close();
                     if (lifeDataSheet != null) lifeDataSheet.close();
+                    if (managementSheet != null) managementSheet.close();
                     connectionDiagnosticState = "authorization";
                     bridgeReady = false; mobileApi.cancelPending();
                 }
@@ -2735,6 +2784,7 @@ public class MainActivity extends AppCompatActivity {
         if (weekSheet != null) weekSheet.close();
         if (taskSheet != null) taskSheet.close();
         if (lifeDataSheet != null) lifeDataSheet.close();
+        if (managementSheet != null) managementSheet.close();
         if (bindingConfirmation != null && bindingConfirmation.isShowing()) bindingConfirmation.dismiss();
         if (bindingDialog != null && bindingDialog.isShowing()) bindingDialog.dismiss();
         if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();

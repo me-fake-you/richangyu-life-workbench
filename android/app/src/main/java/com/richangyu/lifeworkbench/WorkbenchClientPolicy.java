@@ -37,6 +37,8 @@ final class WorkbenchClientPolicy {
         if (write && "/api/mobile-task-actions".equals(path)) return true;
         if (write && "/api/mobile-ledger-actions".equals(path)) return true;
         if (!write && WorkbenchDashboardPolicy.endpoint(path)) return true;
+        if (write && "/api/mobile-management-actions".equals(path)) return true;
+        if (!write && WorkbenchManagementPolicy.endpoint(path)) return true;
         if (!write && "/api/mobile-tasks".equals(path)) return true;
         if (!write && WorkbenchCalendarPolicy.allowsEndpoint(path)) return true;
         return !write && ("/api/assistant?days=1".equals(path)

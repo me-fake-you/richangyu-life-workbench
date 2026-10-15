@@ -52,5 +52,5 @@ test("reminder preview version and release notes remain aligned", () => {
   assert.match(notes, /不更改正式签名/u);
   assert.match(notes, /需要明确确认/u);
   assert.match(notes, /不自动改写关联日程、工时或财务/u);
-  assert.match(source(java + "NativePrivacySheet.java"), /2026-10-11/);
+  assert.match(source(java + "NativePrivacySheet.java"), /2026-10-15/);
 });

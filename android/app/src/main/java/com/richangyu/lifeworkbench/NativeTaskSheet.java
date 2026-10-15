@@ -71,7 +71,7 @@ final class NativeTaskSheet {
         body.setPadding(dp(20), dp(8), dp(20), dp(20));
         body.addView(NativeUi.label(activity, "把事情看清楚，再安排今天", 21, NativeUi.INK, true));
         body.addView(NativeUi.label(activity,
-            "新增、编辑或完成云端任务，需要明确确认；关联日程、工时和财务不会跟着自动改写。目标总览已在App内提供，完整目标编辑仍在网页版。", 13, NativeUi.MUTED, false));
+            "新增、编辑或完成云端任务，需要明确确认；关联日程、工时和财务不会跟着自动改写。目标和里程碑已可在App内管理；任务关联整理仍在网页版。", 13, NativeUi.MUTED, false));
         create = NativeUi.button(activity, "新增任务", true);
         create.setOnClickListener(v -> edit(null)); body.addView(create);
         pendingBox = NativeUi.column(activity); body.addView(pendingBox);

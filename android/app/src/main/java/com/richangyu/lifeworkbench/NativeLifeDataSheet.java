@@ -35,6 +35,7 @@ final class NativeLifeDataSheet {
         void onSaved();
         void onAuthRequired();
         void onClosed();
+        void onManage(String section);
     }
     private final AppCompatActivity activity;
     private final MobileApiBridge bridge;
@@ -86,6 +87,18 @@ final class NativeLifeDataSheet {
             for (int value : new int[] {7, 30, 90}) {
                 Button button = NativeUi.button(activity, "最近 " + value + " 天", false);
                 button.setOnClickListener(v -> { if (!busy) { days = value; load(); } }); body.addView(button);
+            }
+        }
+        if (finance() || "goals".equals(kind)) {
+            String[] sections = finance() ? new String[] {"account", "budget", "savings", "transfer", "transaction"} :
+                new String[] {"goal", "milestone"};
+            String[] names = finance() ? new String[] {"管理账户", "管理分类预算", "管理储蓄目标", "账户转账", "编辑已有账目"} :
+                new String[] {"管理目标", "管理里程碑"};
+            for (int i = 0; i < sections.length; i++) {
+                final String target = sections[i];
+                Button manage = NativeUi.button(activity, names[i], false);
+                manage.setOnClickListener(v -> { if (allowed() && !busy) host.onManage(target); });
+                body.addView(manage);
             }
         }
         state = NativeUi.label(activity, "尚未读取，不代表没有数据。", 13, NativeUi.MUTED, false); body.addView(state);
