@@ -9,12 +9,12 @@ public class NativeFeatureCatalogTest {
    assertFalse(query,matches.isEmpty());for(NativeFeatureCatalog.Entry entry:matches)assertTrue(entry.nativeInApp);
   }
  }
- @Test public void tasksAreDiscoverableButGoalsAreStillWebOnly() {
+ @Test public void tasksAndGoalOverviewAreDiscoverable() {
   assertFalse(NativeFeatureCatalog.search("任务",NativeFeatureCatalog.Scope.NATIVE).isEmpty());
-  assertFalse(NativeFeatureCatalog.search("目标管理",NativeFeatureCatalog.Scope.WEB).isEmpty());
+  assertFalse(NativeFeatureCatalog.search("目标管理",NativeFeatureCatalog.Scope.NATIVE).isEmpty());
  }
  @Test public void webOnlyFeaturesAreLabelledHonestly() {
-  List<NativeFeatureCatalog.Entry> matches=NativeFeatureCatalog.search("\u5b8c\u6574\u6536\u652f",NativeFeatureCatalog.Scope.WEB);
+  List<NativeFeatureCatalog.Entry> matches=NativeFeatureCatalog.search("\u76f8\u518c",NativeFeatureCatalog.Scope.WEB);
   assertFalse(matches.isEmpty());for(NativeFeatureCatalog.Entry entry:matches)assertFalse(entry.nativeInApp);
   assertTrue(NativeFeatureCatalog.search("\u76f8\u518c",NativeFeatureCatalog.Scope.NATIVE).isEmpty());
  }
