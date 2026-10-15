@@ -1,6 +1,14 @@
 package com.richangyu.lifeworkbench;
 
 import android.animation.ValueAnimator;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
+import android.animation.StateListAnimator;
+import android.app.AlertDialog;
+import android.provider.Settings;
+import android.view.ViewAnimationUtils;
+import android.widget.NumberPicker;
+import android.graphics.RectF;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
@@ -98,7 +106,17 @@ final class NativeUi {
         button.setMinimumHeight(dp(context, 52));
         button.setMinWidth(0);
         button.setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12));
-        button.setStateListAnimator(null);
+        if (motionAllowed(context)) {
+            StateListAnimator states = new StateListAnimator();
+            ObjectAnimator pressed = ObjectAnimator.ofPropertyValuesHolder(button,
+                PropertyValuesHolder.ofFloat("scaleX", .98f), PropertyValuesHolder.ofFloat("scaleY", .98f));
+            pressed.setDuration(90);
+            ObjectAnimator rest = ObjectAnimator.ofPropertyValuesHolder(button,
+                PropertyValuesHolder.ofFloat("scaleX", 1f), PropertyValuesHolder.ofFloat("scaleY", 1f));
+            rest.setDuration(140);
+            states.addState(new int[] {android.R.attr.state_pressed, android.R.attr.state_enabled}, pressed);
+            states.addState(new int[] {}, rest); button.setStateListAnimator(states);
+        } else button.setStateListAnimator(null);
         button.setElevation(0);
         decorateButton(button, primary ? FOREST : Color.WHITE,
             primary ? Color.WHITE : INK, primary ? Color.TRANSPARENT : BORDER);
@@ -199,10 +217,73 @@ final class NativeUi {
         return bubble;
     }
     static void enter(View view) {
-        if (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled()) return;
+        if (!motionAllowed(view.getContext())) return;
         view.setAlpha(0);
         view.setTranslationY(dp(view.getContext(), 9));
         view.animate().alpha(1).translationY(0).setDuration(220).start();
+    }
+
+    static boolean motionAllowed(Context context) {
+        try {
+            return Build.VERSION.SDK_INT >= 26 ? ValueAnimator.areAnimatorsEnabled() :
+                Settings.Global.getFloat(context.getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f;
+        } catch (RuntimeException ignored) { return false; }
+    }
+    static void reveal(View view) {
+        if (!motionAllowed(view.getContext())) return;
+        view.post(() -> {
+            if (!view.isAttachedToWindow() || view.getWidth() == 0 || view.getHeight() == 0) return;
+            ViewAnimationUtils.createCircularReveal(view, view.getWidth() / 2, 0, 0,
+                (float) Math.hypot(view.getWidth(), view.getHeight())).setDuration(230).start();
+        });
+    }
+    interface DurationChoice { void selected(int minutes); }
+    static void durationPicker(Context context, int initial, DurationChoice callback) {
+        int[] values = {5, 10, 15, 20, 25, 30, 40, 45, 50, 60, 90, 120};
+        String[] labels = new String[values.length]; int selected = 4;
+        for (int i = 0; i < values.length; i++) { labels[i] = values[i] + " 分钟"; if (values[i] == initial) selected = i; }
+        NumberPicker picker = new NumberPicker(context);
+        picker.setMinValue(0); picker.setMaxValue(values.length - 1); picker.setDisplayedValues(labels);
+        picker.setWrapSelectorWheel(false); picker.setValue(selected); picker.setContentDescription("选择日程时长");
+        new AlertDialog.Builder(context).setTitle("快捷选择时长").setView(picker).setNegativeButton("返回", null)
+            .setPositiveButton("使用此时长", (dialog, which) -> {
+                picker.clearFocus(); callback.selected(values[picker.getValue()]);
+            }).show();
+    }
+    static void confirmed(FrameLayout root, String message) {
+        View previous = root.findViewWithTag("confirmed-save-feedback");
+        if (previous != null) root.removeView(previous);
+        LinearLayout notice = column(root.getContext()); notice.setOrientation(LinearLayout.HORIZONTAL);
+        notice.setTag("confirmed-save-feedback"); notice.setGravity(Gravity.CENTER_VERTICAL);
+        notice.setPadding(dp(root.getContext(), 16), dp(root.getContext(), 12), dp(root.getContext(), 16), dp(root.getContext(), 12));
+        notice.setBackground(shape(root.getContext(), MINT, 16, BORDER));
+        notice.addView(new IconView(root.getContext(), "check", FOREST), new LinearLayout.LayoutParams(dp(root.getContext(), 26), dp(root.getContext(), 26)));
+        TextView label = label(root.getContext(), message, 14, FOREST, true);
+        label.setPadding(dp(root.getContext(), 10), 0, 0, 0); notice.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(root.getContext(), 18), dp(root.getContext(), 80), dp(root.getContext(), 18), 0);
+        root.addView(notice, params); notice.announceForAccessibility(message); enter(notice);
+        notice.postDelayed(() -> root.removeView(notice), 2200);
+    }
+    static final class ProgressRing extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int completed, total;
+        ProgressRing(Context context, int completed, int total) {
+            super(context); this.total = Math.max(0, total); this.completed = Math.max(0, Math.min(this.total, completed));
+            setContentDescription("本次读取的今日安排，已完成 " + this.completed + " / " + this.total);
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float size = Math.min(getWidth(), getHeight()), inset = dp(getContext(), 5);
+            RectF bounds = new RectF(inset, inset, size - inset, size - inset);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(getContext(), 4));
+            paint.setStrokeCap(Paint.Cap.ROUND); paint.setColor(BORDER); canvas.drawOval(bounds, paint);
+            paint.setColor(FOREST);
+            canvas.drawArc(bounds, -90, 360f * WorkbenchMotionPolicy.progress(completed, total), false, paint);
+            paint.setStyle(Paint.Style.FILL); paint.setTypeface(MEDIUM); paint.setTextSize(dp(getContext(), 20));
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(Integer.toString(completed), size / 2, size / 2 - (paint.ascent() + paint.descent()) / 2, paint);
+        }
     }
 
     static final class IconView extends View {

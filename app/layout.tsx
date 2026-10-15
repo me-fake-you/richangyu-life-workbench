@@ -16,6 +16,7 @@ import "./workbench-refresh.css";
 import { PwaProvider } from "./pwa-client";
 import { WorkbenchAssistant } from "./workbench-assistant";
 import "./workbench-assistant.css";
+import "./workbench-polish.css";
 
 export const viewport: Viewport = {
   width: "device-width",

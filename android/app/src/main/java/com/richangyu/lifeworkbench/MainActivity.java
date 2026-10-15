@@ -329,7 +329,9 @@ public class MainActivity extends AppCompatActivity {
         else if ("schedule".equals(tab)) renderSchedules(body);
         else if ("me".equals(tab)) renderMe(body);
         else renderHome(body);
-        if (!tab.equals(lastRenderedTab)) NativeUi.enter(body);
+        if (!tab.equals(lastRenderedTab)) {
+            if ("features".equals(tab)) NativeUi.reveal(body); else NativeUi.enter(body);
+        }
         lastRenderedTab = tab;
     }
 
@@ -352,7 +354,7 @@ public class MainActivity extends AppCompatActivity {
             body.addView(account);
         }
         addHomeConnectionState(body);
-        addHomeSyncState(body);
+        if (saveOutcomeUnknown) addHomeSyncState(body);
         addQuickActions(body);
         if (data == null) {
             TextView hint = text("连接并读取成功后，这里才会显示你的今日安排与记录。未读取不代表云端没有数据。", 12, MUTED);
@@ -385,8 +387,35 @@ public class MainActivity extends AppCompatActivity {
             WorkbenchSchedulePolicy.TODAY, "", now);
         if (today.isEmpty()) emptyCard(body, "今天的时间，还可以安排",
             "本次读取的日程中，没有今天的安排。", "安排日程", () -> openHomeAction("schedule-create"));
-        else for (int i = 0; i < Math.min(3, today.size()); i++)
-            addSchedule(body, schedules.optJSONObject(today.get(i).sourceIndex));
+        else {
+            int completed = 0, total = 0;
+            for (WorkbenchSchedulePolicy.Entry entry : today) {
+                JSONObject item = schedules.optJSONObject(entry.sourceIndex);
+                if (item != null && !"已取消".equals(item.optString("status"))) {
+                    total++; if ("已完成".equals(item.optString("status"))) completed++;
+                }
+            }
+            LinearLayout progress = quickRow(); progress.setGravity(Gravity.CENTER_VERTICAL);
+            progress.setPadding(0, dp(8), 0, dp(14));
+            progress.addView(new NativeUi.ProgressRing(this, completed, total), new LinearLayout.LayoutParams(dp(64), dp(64)));
+            TextView caption = text("已读今日安排 " + completed + " / " + total + " 已完成\n仅统计本次读取，不代表全部云端数据", 12, MUTED);
+            caption.setPadding(dp(14), 0, 0, 0); progress.addView(caption, new LinearLayout.LayoutParams(0, -2, 1));
+            body.addView(progress);
+            if (homeActionsStacked()) {
+                for (int i = 0; i < Math.min(3, today.size()); i++) addSchedule(body, schedules.optJSONObject(today.get(i).sourceIndex));
+            } else {
+                NativeSnapStrip strip = new NativeSnapStrip(this); LinearLayout cards = quickRow();
+                for (int i = 0; i < Math.min(3, today.size()); i++) {
+                    LinearLayout holder = NativeUi.column(this);
+                    addSchedule(holder, schedules.optJSONObject(today.get(i).sourceIndex));
+                    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                        dp(Math.max(220, getResources().getConfiguration().screenWidthDp - 68)), -2);
+                    params.setMargins(0, 0, dp(10), 0); cards.addView(holder, params);
+                }
+                strip.addView(cards); body.addView(strip);
+                if (today.size() > 1) body.addView(text("左右滑动浏览，点击卡片查看详情", 12, MUTED));
+            }
+        }
         if (today.size() > 3) body.addView(text("本次读取还有 " + (today.size() - 3)
             + " 条今日安排，可在日程页查看。", 12, MUTED));
         addHomeSectionHeader(body, "最近记录", "查看记录", () -> {
@@ -397,8 +426,22 @@ public class MainActivity extends AppCompatActivity {
             WorkbenchRecordPolicy.ALL, "", now);
         if (recent.isEmpty()) emptyCard(body, "随手记下今天",
             "本机草稿与云端记录会明确分开。", "写一条记录", () -> openHomeAction("record-create"));
-        else for (int i = 0; i < Math.min(3, recent.size()); i++)
-            addRecord(body, records.optJSONObject(recent.get(i).sourceIndex));
+        else {
+            addRecord(body, records.optJSONObject(recent.get(0).sourceIndex));
+            if (recent.size() > 1) {
+                LinearLayout more = NativeUi.column(this);
+                for (int i = 1; i < Math.min(3, recent.size()); i++) addRecord(more, records.optJSONObject(recent.get(i).sourceIndex));
+                more.setVisibility(View.GONE); body.addView(more);
+                Button expand = secondaryButton("展开更多最近记录");
+                expand.setOnClickListener(v -> {
+                    boolean open = more.getVisibility() != View.VISIBLE;
+                    more.setVisibility(open ? View.VISIBLE : View.GONE);
+                    expand.setText(open ? "收起最近记录" : "展开更多最近记录");
+                    if (open) NativeUi.enter(more);
+                }); body.addView(expand);
+            }
+        }
+        if (!saveOutcomeUnknown) addHomeSyncState(body);
     }
 
 
@@ -743,12 +786,12 @@ public class MainActivity extends AppCompatActivity {
             quickAction("写记录", "记下此刻发生的事", "records", BLUE, () -> openHomeAction("record-create")));
         addHomeActionRow(body,
             quickAction("安排日程", "选择日期与时间", "schedule", GREEN, () -> openHomeAction("schedule-create")),
-            quickAction("专注打卡", "开始或查看当前专注", "home", GREEN, () -> openHomeAction("checkin")));
+            quickAction("任务中心", "查看任务与今日重点", "schedule", GREEN, () -> openHomeAction("tasks")));
         LinearLayout more = quickRow();
         boolean stacked = homeActionsStacked();
         more.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        String[] titles = {"兼职结算", "AI 助手", "本机草稿"};
-        String[] keys = {"work-hours", "ai", "drafts"};
+        String[] titles = {"专注打卡", "兼职结算", "AI 助手", "本机草稿"};
+        String[] keys = {"checkin", "work-hours", "ai", "drafts"};
         for (int i = 0; i < titles.length; i++) {
             final String key = keys[i];
             Button button = secondaryButton(titles[i]);
@@ -801,6 +844,7 @@ public class MainActivity extends AppCompatActivity {
         else if ("schedule-create".equals(key)) showScheduleDialog();
         else if ("checkin".equals(key)) openFeatureCheckin("专注打卡");
         else if ("work-hours".equals(key)) showWork();
+        else if ("tasks".equals(key)) showTasks();
         else if ("ai".equals(key)) showAi();
     }
 
@@ -1960,7 +2004,11 @@ public class MainActivity extends AppCompatActivity {
         Button time=secondaryButton(scheduleLabel(start)),endTime=secondaryButton("结束："+scheduleLabel(end));
         time.setOnClickListener(v->pickDateTime(start,time,()->{if(!end.after(start))end.setTimeInMillis(start.getTimeInMillis()+3600000);endTime.setText("结束："+scheduleLabel(end));}));
         endTime.setOnClickListener(v->pickDateTime(end,endTime,()->endTime.setText("结束："+scheduleLabel(end))));
-        form.addView(title);form.addView(time);form.addView(endTime);form.addView(place);form.addView(note);
+        Button duration=secondaryButton("快捷选择时长");
+        duration.setOnClickListener(v->NativeUi.durationPicker(this,60,minutes->{
+            end.setTimeInMillis(start.getTimeInMillis()+minutes*60000L);endTime.setText("结束："+scheduleLabel(end));
+        }));
+        form.addView(title);form.addView(time);form.addView(endTime);form.addView(duration);form.addView(place);form.addView(note);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("新建日程").setView(scrollForm(form)).setNegativeButton("取消",null)
             .setNeutralButton("存为本机草稿",null).setPositiveButton("联网保存",null).create();
         dialog.setOnShowListener(d->{
@@ -2080,7 +2128,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 JSONObject receipt = new JSONObject(envelope.optString("body"));
                 if (receipt.has("error") || receipt.optString("id").isEmpty()) throw new IllegalArgumentException("invalid receipt");
-                Toast.makeText(this, receipt.optBoolean("alreadyRunning") ? "已有正在进行的打卡，没有重复创建。" : successMessage, Toast.LENGTH_SHORT).show();
+                NativeUi.confirmed(root, receipt.optBoolean("alreadyRunning") ? "已有正在进行的打卡，没有重复创建。" : successMessage);
             } catch (Exception error) {
                 setSaveOutcomeUnknown(true);
                 syncLabel.setText("结果待核实");

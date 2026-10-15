@@ -12,6 +12,7 @@ import {
 import { type FocusClockController, focusDisplay, focusElapsedMs } from "./focus-clock";
 import { enqueueOfflineMutation, getDeviceId } from "./offline-sync";
 import { StudioIsland, StudioSpaces } from "./studio-personalization";
+import { DurationWheel, ProgressOrbit, SaveFeedback, StackedList } from "./interaction-kit";
 import {
   belongsToDay, type HomeTask, localDay, overlaps, shiftDay, sortHomeTasks, taskForDay, weekDays,
 } from "../lib/workbench-home";
@@ -76,6 +77,7 @@ export function HomeStudio(props: Props) {
   const [captureTitle, setCaptureTitle] = useState("");
   const [busy, setBusy] = useState("");
   const [captureError, setCaptureError] = useState("");
+  const [captureOutcome, setCaptureOutcome] = useState<{ local: boolean; label: string } | null>(null);
   const [quiet, setQuiet] = useState(false);
   const [compact, setCompact] = useState(false);
   const [undo, setUndo] = useState<{ id: string; status: string; rank: number | null } | null>(null);
@@ -166,8 +168,9 @@ export function HomeStudio(props: Props) {
   async function saveCapture(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim() || busy) return;
-    setCaptureError("");
+    setCaptureError(""); setCaptureOutcome(null);
     setBusy("capture");
+    let queuedLocally = false;
     try {
       if (capture === "task") {
         await taskRequest("task.create", {
@@ -179,6 +182,7 @@ export function HomeStudio(props: Props) {
         const payload = { content: draft.trim(), sourceType: "文字" };
         if (!navigator.onLine) {
           await enqueueOfflineMutation({ action: "inbox.create", payload });
+          queuedLocally = true;
         } else {
           const response = await fetch("/api/workspace", {
             method: "POST", headers: { "content-type": "application/json" },
@@ -193,6 +197,7 @@ export function HomeStudio(props: Props) {
         const payload = { content: draft.trim(), title: captureTitle, mood, kind, energy: 3, happenedAt, deviceId: getDeviceId() };
         if (!navigator.onLine) {
           await enqueueOfflineMutation({ action: "event.create", payload });
+          queuedLocally = true;
         } else {
           const form = new FormData();
           Object.entries(payload).forEach(([key, value]) => form.set(key, String(value)));
@@ -203,7 +208,9 @@ export function HomeStudio(props: Props) {
         await onReload();
       }
       setDraft(""); setCaptureTitle(""); setKind("生活");
-      onNotice(navigator.onLine ? `${captureLabels[capture]}已保存。` : "已在本机排队，联网后会自动同步。");
+      const label = queuedLocally ? "尚未提交云端，联网后按现有队列规则同步。" : `${captureLabels[capture]}已收到工作台保存结果。`;
+      setCaptureOutcome({ local: queuedLocally, label });
+      onNotice(queuedLocally ? "已在本机排队，联网后会自动同步。" : `${captureLabels[capture]}已保存。`);
     } catch (error) {
       setCaptureError(error instanceof Error ? error.message : "保存失败，内容仍在这里。");
     } finally { setBusy(""); }
@@ -299,6 +306,13 @@ export function HomeStudio(props: Props) {
         }}><Focus size={17} />{quiet ? "完整工作台" : "专注视图"}</button>
       </header>
 
+      <nav className="polish-launchers" aria-label="常用功能直达">
+        <button onClick={props.onRecord}><PencilLine size={18} />写记录</button>
+        <button onClick={() => props.onSchedule(selected)}><CalendarClock size={18} />安排日程</button>
+        <button onClick={() => props.onView("nutrition")}><Leaf size={18} />热量与饮食</button>
+        <button onClick={() => props.onView("tasks")}><ListChecks size={18} />任务中心</button>
+        <button onClick={() => props.onView("sideHustle")}><Focus size={18} />兼职工时</button>
+      </nav>
       <section className="studio-week" aria-label="按周浏览工作台">
         <div className="studio-week-heading"><strong>{selected.getMonth() + 1} 月的日常</strong>
           <div><button onClick={() => setSelected(new Date(today))}>回到今天</button>
@@ -325,7 +339,7 @@ export function HomeStudio(props: Props) {
                 {key === "record" ? <PencilLine size={15} /> : key === "task" ? <ListChecks size={15} /> : <Inbox size={15} />}{captureLabels[key]}</button>)}
             </div><span className="studio-date-note">{isToday ? "此刻" : `${selected.getMonth() + 1}/${selected.getDate()}`}</span></div>
             <textarea ref={draftRef} aria-label="快速记录内容" value={draft} maxLength={5000} disabled={busy === "capture"}
-              onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+              onChange={event => { setDraft(event.target.value); setCaptureOutcome(null); }} onKeyDown={event => {
                 if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
               }} placeholder={capture === "record" ? "这一刻，有什么值得记下来？" : capture === "task" ? "写下一件要完成的事情…" : "想法、链接、线索，先放在这里…"} />
             {captureTitle && capture === "record" && <span className="studio-template-label"><BookOpen size={13} />{captureTitle}
@@ -333,7 +347,8 @@ export function HomeStudio(props: Props) {
             <div className="studio-capture-bottom"><div className="studio-capture-tools">
               {capture === "record" ? <><label>心情<select value={mood} onChange={event => setMood(event.target.value)}><option>平静</option><option>开心</option><option>充实</option><option>疲惫</option><option>低落</option></select></label>
                 <button type="button" onClick={props.onRecord}><Plus size={14} />照片 / 更多</button></> : <span>{capture === "task" ? "保存为选中日期的待办" : "不必现在整理"}</span>}
-            </div><button className="studio-primary" disabled={!draft.trim() || Boolean(busy)}>{busy === "capture" ? <LoaderCircle size={15} className="spin" /> : <ArrowDownLeft size={15} />}保存{captureLabels[capture]}</button></div>
+            </div><button className="studio-primary" disabled={!draft.trim() || Boolean(busy)}>{busy === "capture" ? <LoaderCircle size={15} className="spin" /> : captureOutcome ? <Check size={15} /> : <ArrowDownLeft size={15} />}{captureOutcome ? captureOutcome.local ? "已存本机" : "已保存" : "保存" + captureLabels[capture]}</button></div>
+            {captureOutcome && <SaveFeedback local={captureOutcome.local} label={captureOutcome.label} />}
             {captureError && <p className="studio-error" role="alert">{captureError} 内容未丢失，请重试。</p>}
             {capture === "record" && <div className="studio-templates"><span>从一个模板开始</span>{templates.map(template => <button key={template.title} type="button" disabled={Boolean(busy)} onClick={() => {
               setDraft(draft.trim() ? `${draft}\n\n${template.content}` : template.content); setCaptureTitle(template.title); setKind(template.kind); draftRef.current?.focus();
@@ -346,7 +361,7 @@ export function HomeStudio(props: Props) {
             <div className="studio-task-filters"><div className="studio-tabs">{([
               ["day", isToday ? "今天" : "当天"], ["all", "全部待办"], ["done", "已完成"],
             ] as const).map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div>
-              <span>{completed} / {dailyTasks.length} 已完成</span></div>
+              <span>{taskLoading || taskError ? "进度未读到" : completed + " / " + dailyTasks.length + " 已完成"}</span></div>
             {undo && <div className="studio-undo" role="status"><CheckCheck size={15} />任务已完成<button disabled={Boolean(busy)} onClick={() => void perform("undo", async () => {
               await taskRequest("task.update", { id: undo.id, status: undo.status, todayRank: undo.rank }); setUndo(null); await loadTasks();
             })}>撤销</button></div>}
@@ -379,10 +394,10 @@ export function HomeStudio(props: Props) {
           <section className="studio-panel studio-journal">
             <PanelHeading icon={<Leaf size={18} />} title="留下日常的痕迹" label="LIFE, AS IT HAPPENS"
               action={<button onClick={() => props.onView("timeline")}>时间线<ArrowRight size={14} /></button>} />
-            {shownEvents.length ? <div className="studio-journal-list">{shownEvents.slice(0, 5).map(item => <button key={item.id} onClick={() => props.onEdit(item.id)} className="studio-journal-item">
+            {shownEvents.length ? <div className="studio-journal-list"><StackedList>{shownEvents.slice(0, 5).map(item => <button key={item.id} onClick={() => props.onEdit(item.id)} className="studio-journal-item">
               <time>{time(item.happenedAt)}</time><div><small>{item.kind}<span>{item.mood}</span></small><strong>{item.title || item.content.split("\n")[0] || "生活记录"}</strong>
                 {item.title && <p>{item.content}</p>}</div>{item.photos[0] ? <img src={item.photos[0].url} alt={item.photos[0].filename || "生活照片"} loading="lazy" /> : <PencilLine size={15} />}
-            </button>)}</div> : <div className="studio-empty"><BookOpen size={24} /><strong>生活里的小事，也值得留下</strong><p>上方的记录框随时等着你。</p><button onClick={props.onRecord}>写下这一刻<PencilLine size={14} /></button></div>}
+            </button>)}</StackedList></div> : <div className="studio-empty"><BookOpen size={24} /><strong>生活里的小事，也值得留下</strong><p>上方的记录框随时等着你。</p><button onClick={props.onRecord}>写下这一刻<PencilLine size={14} /></button></div>}
           </section>
         </div>
 
@@ -395,15 +410,15 @@ export function HomeStudio(props: Props) {
             {session ? <div className="studio-focus-controls"><button onClick={focusClock.toggle}>{session.status === "running" ? <Pause size={15} /> : <Play size={15} />}{session.status === "running" ? "暂停" : "继续"}</button>
               <button onClick={() => { if (session.targetType === "task") { focusClock.pause(); setFinish(true); } else props.onView("schedule"); }}><Check size={15} />结束并保存</button></div>
               : <><input aria-label="本次专注内容" value={freeTitle} onChange={event => setFreeTitle(event.target.value)} maxLength={200} placeholder={visibleTasks[0]?.title || "这次想专注什么？"} />
-                <div className="studio-duration">{[25, 45, 60].map(minutes => <button key={minutes} aria-pressed={focusMinutes === minutes} className={focusMinutes === minutes ? "active" : ""} onClick={() => setFocusMinutes(minutes)}>{minutes} 分钟</button>)}</div>
+                <DurationWheel value={focusMinutes} onChange={setFocusMinutes} />
                 <button className="studio-focus-start" disabled={Boolean(busy) || (!freeTitle.trim() && !visibleTasks.length)} onClick={() => void startFreeFocus()}>{busy === "focus-start" ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}开始专注</button></>}
             <small className="studio-focus-foot">切换页面或刷新后，计时可继续恢复</small>
           </section>
 
           <section className="studio-panel studio-progress">
             <PanelHeading icon={<Sparkles size={17} />} title="进展，慢慢看得见" label="SMALL STEPS COUNT" />
-            <div className="studio-progress-stats"><div><strong>{taskError ? "—" : completed}<small> / {dailyTasks.length}</small></strong><span>当天完成任务</span></div>
-              <div><strong>{taskError ? "—" : dayFocus}<small> min</small></strong><span>当天专注投入</span></div></div>
+            <div className="polish-progress-row"><ProgressOrbit completed={completed} total={dailyTasks.length} unavailable={taskLoading || Boolean(taskError)} /><div className="studio-progress-stats"><div><strong>{taskLoading || taskError ? "—" : completed}<small> / {dailyTasks.length}</small></strong><span>当天完成任务</span></div>
+              <div><strong>{taskLoading || taskError ? "—" : dayFocus}<small> min</small></strong><span>当天专注投入</span></div></div></div>
             <div className="studio-progress-track"><span style={{ width: `${dailyTasks.length ? completed / dailyTasks.length * 100 : 0}%` }} /></div>
             <div className="studio-activity" aria-label="本周记录活跃度">{days.map((date, index) => {
               const amount = events.filter(item => item.recordStatus !== "checkin_running" && localDay(item.happenedAt) === localDay(date)).length;
@@ -449,3 +464,4 @@ function StudioModal({ title, children, onClose }: { title: string; children: Re
   return <dialog ref={ref} className="studio-modal" aria-label={title} onCancel={event => { event.preventDefault(); onClose(); }}
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}><header><h2>{title}</h2><button aria-label="关闭" onClick={onClose}><X size={18} /></button></header>{children}</dialog>;
 }
+
