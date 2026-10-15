@@ -34,6 +34,7 @@ final class WorkbenchClientPolicy {
     }
     static boolean allowsEndpoint(String path, boolean write) {
         if ("/api/mobile-actions".equals(path) || "/api/mobile".equals(path) || "/api/assistant".equals(path) || "/api/nutrition".equals(path)) return true;
+        if (write && "/api/mobile-task-actions".equals(path)) return true;
         if (!write && "/api/mobile-tasks".equals(path)) return true;
         if (!write && WorkbenchCalendarPolicy.allowsEndpoint(path)) return true;
         return !write && ("/api/assistant?days=1".equals(path)

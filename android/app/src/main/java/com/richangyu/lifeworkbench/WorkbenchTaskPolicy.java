@@ -10,15 +10,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 
-/** Read-only task presentation policy. No storage, cookies, or write payloads. */
+/** Task read presentation policy. No storage or cookies. */
 final class WorkbenchTaskPolicy {
     static final int LIMIT = 100;
     static final String ALL = "全部", PENDING = "待办", TODAY = "今日重点", OVERDUE = "逾期", DONE = "已完成";
     static final class Entry {
-        final String id, title, description, status, priority, dueAt, project;
+        final String id, title, description, status, priority, dueAt, project, revision;
         final int plannedMinutes, actualMinutes, todayRank;
         Entry(String id, String title, String description, String status, String priority,
               String dueAt, String project, int plannedMinutes, int actualMinutes, int todayRank) {
+            this(id, title, description, status, priority, dueAt, project, plannedMinutes, actualMinutes, todayRank, "");
+        }
+        Entry(String id, String title, String description, String status, String priority,
+              String dueAt, String project, int plannedMinutes, int actualMinutes, int todayRank, String revision) {
+            this.revision = safe(revision);
             this.id = safe(id); this.title = safe(title); this.description = safe(description);
             this.status = safe(status); this.priority = safe(priority); this.dueAt = safe(dueAt);
             this.project = safe(project); this.plannedMinutes = plannedMinutes;

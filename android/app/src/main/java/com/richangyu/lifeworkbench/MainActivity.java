@@ -2302,6 +2302,8 @@ public class MainActivity extends AppCompatActivity {
                 return bridgeReady && homeReadSucceeded && !saving && !syncing && !bindingChanging
                     && scope.equals(activeDraftScope);
             }
+            @Override public boolean writesBlocked() { return saveOutcomeUnknown || saving || bindingChanging; }
+            @Override public void onSaved() { recordSyncReceipt(scope); }
             @Override public void onAuthRequired() {
                 if (taskSheet != null) taskSheet.close();
                 homeReadSucceeded = false; invalidateLocalReminders(); showAuth();
